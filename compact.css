@@ -1,0 +1,9 @@
+[hidden]{display:none!important}
+.list-controls{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}
+.list-controls input,.list-controls select{flex:1;min-width:150px;width:auto;margin:0}
+details.fine-card{display:block}
+details summary{cursor:pointer;font-weight:700;line-height:1.6;overflow-wrap:anywhere;padding:6px 0}
+details[open] summary{margin-bottom:14px;border-bottom:1px solid #555}
+details .fine-actions{margin-top:14px}
+summary:focus-visible{outline:2px solid #f5a900;outline-offset:4px}
+@media(max-width:480px){.list-controls>*{flex-basis:100%!important;width:100%!important}}

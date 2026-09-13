@@ -47,7 +47,9 @@ function render(){
  document.getElementById('new-event').onclick=()=>edit();
  const root=document.getElementById('events-list');root.replaceChildren();
  [...meetings.map(x=>({...x,table:'termine'})),...events.map(x=>({...x,table:'zug_events'}))].sort((a,b)=>a.starts_at.localeCompare(b.starts_at)).forEach(item=>{
- const card=node('article');card.className='rsvp-box';card.style.marginBottom='14px';
+ const card=node('details');card.className='rsvp-box';card.style.marginBottom='14px';
+ card.dataset.startsAt=item.starts_at;card.dataset.kind=item.table;
+ card.append(node('summary',item.title+' · '+date(item.starts_at)));
  card.append(node('h3',item.title),node('p',(item.table==='termine'?'Schützentreffen · ':'Event · ')+date(item.starts_at)),node('p',item.location),node('p',item.description));
  if(item.table==='termine'?officer():board()||item.created_by===ctx.profile.id)card.append(button('Bearbeiten',()=>edit(item,item.table)));
  if(item.table==='zug_events'){
@@ -66,8 +68,7 @@ function render(){
  }
  }root.append(card);
  });
- if(!root.childNodes.length)root.append(node('p','Noch keine Termine eingetragen.'));
+ window.LMK_LISTS.update('events-list',{events:true});
 }
 return {load:async context=>{ctx=context;await reload();}};
 })();
-

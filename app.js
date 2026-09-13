@@ -207,6 +207,7 @@
     const myFines = state.fines.filter((fine) => fine.member_id === state.profile.id);
     $('my-fines').replaceChildren(...(myFines.length ? myFines.map((fine) => {
       const card = el('article', null, 'fine-card');
+      card.dataset.status = fine.is_paid ? 'paid' : 'open';
       const left = document.createElement('div');
       const paidNote = fine.is_paid && fine.paid_at ? ` · Bezahlt am ${new Date(fine.paid_at).toLocaleDateString('de-DE')}` : '';
       left.append(el('p', fine.reason), el('small', `Strafe vom ${fineDate(fine)}${paidNote}`));
@@ -216,6 +217,7 @@
       return card;
     }) : [el('p', 'Du hast noch keine Strafen.', 'muted')]));
 
+    window.LMK_LISTS.update('my-fines');
     if (isOfficer) renderOfficerFines();
 
     const statusLabel = { kann: 'Dabei', kann_nicht: 'Abgesagt', unsicher: 'Unsicher' };
@@ -302,11 +304,14 @@
     const container = $('officer-fines');
     if (!state.fines.length) {
       container.replaceChildren(el('p', 'Noch keine Strafen vorhanden.', 'muted'));
+      window.LMK_LISTS.update('officer-fines');
       return;
     }
     container.replaceChildren(...state.fines.map((fine) => {
       const member = state.profiles.find((profile) => profile.id === fine.member_id);
-      const card = el('article', null, 'fine-card officer-fine');
+      const card = el('details', null, 'fine-card officer-fine');
+      card.dataset.status = fine.is_paid ? 'paid' : 'open';
+      card.append(el('summary', `${member?.full_name || 'Unbekannt'} · ${fine.reason} · ${money.format(Number(fine.amount))} · ${fine.is_paid ? 'Bezahlt' : 'Offen'}`));
       const copy = document.createElement('div');
       const dateEditor = el('div', null, 'fine-date-editor');
       const fineDateLabel = el('label', 'Strafe vom');
@@ -340,6 +345,7 @@
       card.append(copy, actions);
       return card;
     }));
+    window.LMK_LISTS.update('officer-fines');
   }
 
   async function setFinePaid(fine) {
