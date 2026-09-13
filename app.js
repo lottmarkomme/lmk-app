@@ -114,7 +114,7 @@
     const now = new Date().toISOString();
     const [profiles, fines, catalog, meetings] = await Promise.all([
       api('profiles?select=id,full_name,role&order=full_name.asc'),
-      api('strafen?select=id,member_id,created_by,catalog_id,reason,amount,is_paid,paid_at,created_at&order=created_at.desc'),
+      api('strafen?select=id,member_id,created_by,catalog_id,reason,amount,is_paid,paid_at,occurred_on,created_at&order=occurred_on.desc,created_at.desc'),
       api('strafenkatalog?select=id,kategorie,paragraph_nr,titel,standard_betrag&order=paragraph_nr.asc'),
       api(`termine?select=id,title,starts_at,location,description&starts_at=gte.${encodeURIComponent(now)}&order=starts_at.asc&limit=1`)
     ]);
@@ -132,6 +132,27 @@
     if (text !== undefined && text !== null) node.textContent = text;
     if (className) node.className = className;
     return node;
+  }
+
+  function localDateValue(date = new Date()) {
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  }
+
+  function formatDateOnly(value) {
+    if (!value) return '';
+    const [year, month, day] = String(value).slice(0, 10).split('-');
+    return year && month && day ? `${day}.${month}.${year}` : String(value);
+  }
+
+  function paidDateToIso(value) {
+    if (!value) return null;
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, month - 1, day, 12, 0, 0).toISOString();
+  }
+
+  function fineDate(fine) {
+    return fine.occurred_on ? formatDateOnly(fine.occurred_on) : new Date(fine.created_at).toLocaleDateString('de-DE');
   }
 
   function render() {
@@ -183,7 +204,8 @@
     $('my-fines').replaceChildren(...(myFines.length ? myFines.map((fine) => {
       const card = el('article', null, 'fine-card');
       const left = document.createElement('div');
-      left.append(el('p', fine.reason), el('small', new Date(fine.created_at).toLocaleDateString('de-DE')));
+      const paidNote = fine.is_paid && fine.paid_at ? ` · Bezahlt am ${new Date(fine.paid_at).toLocaleDateString('de-DE')}` : '';
+      left.append(el('p', fine.reason), el('small', `Strafe vom ${fineDate(fine)}${paidNote}`));
       const right = document.createElement('div');
       right.append(el('strong', money.format(Number(fine.amount))), el('span', fine.is_paid ? 'Bezahlt' : 'Offen', `pill ${fine.is_paid ? 'paid' : 'open'}`));
       card.append(left, right);
@@ -251,14 +273,16 @@
     event.preventDefault();
     $('fine-error').classList.add('hidden');
     const catalogId = $('fine-catalog').value || null;
+    const paidAt = paidDateToIso($('fine-paid-date').value);
     const payload = {
       member_id: $('fine-member').value,
       created_by: state.profile.id,
       catalog_id: catalogId,
       reason: $('fine-reason').value.trim(),
       amount: Number($('fine-amount').value),
-      is_paid: false,
-      paid_at: null
+      occurred_on: $('fine-date').value,
+      is_paid: Boolean(paidAt),
+      paid_at: paidAt
     };
     const target = state.profiles.find((profile) => profile.id === payload.member_id);
     try {
@@ -281,7 +305,7 @@
       const copy = document.createElement('div');
       copy.append(
         el('p', `${member?.full_name || 'Unbekannt'} · ${fine.reason}`),
-        el('small', `${new Date(fine.created_at).toLocaleDateString('de-DE')} · ${money.format(Number(fine.amount))}`)
+        el('small', `Strafe vom ${fineDate(fine)} · ${money.format(Number(fine.amount))}${fine.is_paid && fine.paid_at ? ` · Bezahlt am ${new Date(fine.paid_at).toLocaleDateString('de-DE')}` : ''}`)
       );
       const actions = el('div', null, 'fine-actions');
       const paidButton = el('button', fine.is_paid ? 'Als offen markieren' : 'Als bezahlt markieren', `button ${fine.is_paid ? 'neutral' : 'success'}`);
@@ -324,12 +348,19 @@
     $('fine-amount').value = item.standard_betrag == null ? '' : Number(item.standard_betrag).toFixed(2);
   }
 
+  function openFineDialog() {
+    $('fine-form').reset();
+    $('fine-error').classList.add('hidden');
+    $('fine-date').value = localDateValue();
+    $('fine-dialog').showModal();
+  }
+
   async function init() {
     $('login-tab').addEventListener('click', () => setAuthMode('login'));
     $('register-tab').addEventListener('click', () => setAuthMode('register'));
     $('auth-form').addEventListener('submit', submitAuth);
     $('logout-button').addEventListener('click', () => client.auth.signOut());
-    $('add-fine-button').addEventListener('click', () => $('fine-dialog').showModal());
+    $('add-fine-button').addEventListener('click', openFineDialog);
     $('close-dialog').addEventListener('click', () => $('fine-dialog').close());
     $('fine-form').addEventListener('submit', saveFine);
     $('fine-catalog').addEventListener('change', applyCatalog);

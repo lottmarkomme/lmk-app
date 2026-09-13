@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lmk-zug-app-v1';
+const CACHE_NAME = 'lmk-zug-app-v2';
 const APP_SHELL = [
   './',
   './index.html',
