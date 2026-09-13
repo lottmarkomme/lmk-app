@@ -165,7 +165,7 @@
     if (state.meeting) {
       $('meeting-title').textContent = state.meeting.title;
       $('meeting-date').textContent = dateTime.format(new Date(state.meeting.starts_at)) + ' Uhr';
-      $('meeting-location').textContent = state.meeting.location;
+      $('meeting-location').textContent = state.meeting.location + (state.meeting.description ? ' · ' + state.meeting.description : '');
       const own = state.attendance.find((a) => a.profile_id === state.profile.id);
       const labels = { kann: 'Du hast zugesagt.', kann_nicht: 'Du hast abgesagt.', unsicher: 'Du bist noch unsicher.' };
       $('rsvp-note').textContent = own ? labels[own.status] : 'Noch keine Rückmeldung';
@@ -182,21 +182,25 @@
         ...profile,
         count: fines.length,
         total: fines.reduce((sum, fine) => sum + Number(fine.amount), 0),
-        unpaid: fines.filter((fine) => !fine.is_paid).reduce((sum, fine) => sum + Number(fine.amount), 0)
+        unpaid: fines.filter((fine) => !fine.is_paid).reduce((sum, fine) => sum + Number(fine.amount), 0),
+        zugsauScore: fines.reduce((sum, fine) => sum + Number(fine.amount) / (profile.role === 'spiess' ? 2 : 1), 0)
       };
-    }).sort((a, b) => b.total - a.total || a.full_name.localeCompare(b.full_name, 'de'));
+    }).sort((a, b) => b.zugsauScore - a.zugsauScore || b.total - a.total || a.full_name.localeCompare(b.full_name, 'de'));
     const total = state.fines.reduce((sum, fine) => sum + Number(fine.amount), 0);
     const unpaid = state.fines.filter((fine) => !fine.is_paid).reduce((sum, fine) => sum + Number(fine.amount), 0);
     const mine = state.fines.filter((fine) => fine.member_id === state.profile.id && !fine.is_paid).reduce((sum, fine) => sum + Number(fine.amount), 0);
     $('total-amount').textContent = money.format(total);
     $('unpaid-amount').textContent = money.format(unpaid);
     $('my-amount').textContent = money.format(mine);
-    $('zugsau-name').textContent = stats[0]?.total > 0 ? stats[0].full_name : 'Noch offen';
+    const highestScore = stats[0]?.zugsauScore || 0;
+    const leaders = highestScore > 0 ? stats.filter((member) => member.zugsauScore === highestScore) : [];
+    $('zugsau-name').textContent = leaders.length ? leaders.map((member) => member.full_name).join(' & ') : 'Noch offen';
 
     $('ranking-body').replaceChildren(...stats.map((member) => {
       const row = document.createElement('tr');
       row.append(el('td', member.full_name + (member.id === state.profile.id ? ' (du)' : '')),
-        el('td', String(member.count)), el('td', money.format(member.unpaid)), el('td', money.format(member.total)));
+        el('td', String(member.count)), el('td', money.format(member.unpaid)), el('td', money.format(member.total)),
+        el('td', money.format(member.zugsauScore)));
       return row;
     }));
 
@@ -244,6 +248,7 @@
       await getProfile();
       await loadData();
       render();
+      await window.LMK_EVENTS.load({ api, profile: state.profile, refresh: async () => { await loadData(); render(); } });
       $('auth-view').classList.add('hidden');
       $('app-view').classList.remove('hidden');
     } catch (error) {

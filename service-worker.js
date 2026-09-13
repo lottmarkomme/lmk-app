@@ -1,12 +1,15 @@
-const CACHE_NAME = 'lmk-zug-app-v4';
+const CACHE_NAME = 'lmk-zug-app-v6';
 const APP_SHELL = [
   './',
   './index.html',
-  './styles.css?v=4',
-  './app.js?v=4',
-  './pwa.js?v=4',
+  './styles.css?v=6',
+  './app.js?v=6',
+  './events.js?v=6',
+  './impressum.html',
+  './datenschutz.html',
+  './pwa.js?v=6',
   './config.js',
-  './manifest.webmanifest?v=4',
+  './manifest.webmanifest?v=6',
   './offline.html',
   './icons/icon-192.png',
   './icons/icon-512.png',

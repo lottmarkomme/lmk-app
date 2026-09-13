@@ -10,14 +10,15 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Lott mar komme">
   <title>Lott mar komme | Zug-App</title>
-  <link rel="manifest" href="manifest.webmanifest?v=4">
+  <link rel="manifest" href="manifest.webmanifest?v=6">
   <link rel="icon" href="icons/icon-192.png" sizes="192x192">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=4">
+  <link rel="stylesheet" href="styles.css?v=6">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
-  <script src="app.js?v=4" defer></script>
-  <script src="pwa.js?v=4" defer></script>
+  <script src="events.js?v=6" defer></script>
+  <script src="app.js?v=6" defer></script>
+  <script src="pwa.js?v=6" defer></script>
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -88,8 +89,9 @@
         </div>
       </section>
 
+      <section class="panel"><div class="panel-head"><h2>Treffen &amp; Events</h2><button id="new-event" class="button primary" type="button">+ Event</button></div><div id="events-list" class="card-list"></div><div id="events-error" role="status" class="form-error hidden"></div></section>
       <section class="stats-grid" aria-label="Statistik">
-        <article class="stat"><span>Zugsau</span><strong id="zugsau-name">–</strong><small>Höchste Gesamtsumme</small></article>
+        <article class="stat"><span>Zugsau</span><strong id="zugsau-name">–</strong><small>Höchste Wertung ohne Spieß-Dopplung</small></article>
         <article class="stat"><span>Gesamte Strafen</span><strong id="total-amount">0,00 €</strong></article>
         <article class="stat"><span>Noch offen</span><strong id="unpaid-amount" class="red">0,00 €</strong></article>
         <article class="stat"><span>Bei mir offen</span><strong id="my-amount" class="gold">0,00 €</strong></article>
@@ -105,7 +107,7 @@
         </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Mitglied</th><th>Anzahl</th><th>Offen</th><th>Gesamt</th></tr></thead>
+            <thead><tr><th>Mitglied</th><th>Anzahl</th><th>Offen</th><th>Gesamt</th><th>Zugsau-Wertung</th></tr></thead>
             <tbody id="ranking-body"></tbody>
           </table>
         </div>
@@ -141,5 +143,6 @@
       <button class="button primary full" type="submit">Speichern</button>
     </form>
   </dialog>
+<footer style="text-align:center;padding:25px 15px 90px"><a href="impressum.html">Impressum</a> · <a href="datenschutz.html">Datenschutz</a></footer>
 </body>
 </html>
