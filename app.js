@@ -303,18 +303,35 @@
       const member = state.profiles.find((profile) => profile.id === fine.member_id);
       const card = el('article', null, 'fine-card officer-fine');
       const copy = document.createElement('div');
+      const dateEditor = el('div', null, 'fine-date-editor');
+      const fineDateLabel = el('label', 'Strafe vom');
+      const fineDateInput = document.createElement('input');
+      fineDateInput.type = 'date';
+      fineDateInput.value = fine.occurred_on || localDateValue(new Date(fine.created_at));
+      fineDateInput.required = true;
+      fineDateLabel.append(fineDateInput);
+      const paidDateLabel = el('label', 'Bezahlt am (optional)');
+      const paidDateInput = document.createElement('input');
+      paidDateInput.type = 'date';
+      paidDateInput.value = fine.paid_at ? localDateValue(new Date(fine.paid_at)) : '';
+      paidDateLabel.append(paidDateInput);
+      dateEditor.append(fineDateLabel, paidDateLabel);
       copy.append(
         el('p', `${member?.full_name || 'Unbekannt'} · ${fine.reason}`),
-        el('small', `Strafe vom ${fineDate(fine)} · ${money.format(Number(fine.amount))}${fine.is_paid && fine.paid_at ? ` · Bezahlt am ${new Date(fine.paid_at).toLocaleDateString('de-DE')}` : ''}`)
+        el('small', `Strafe vom ${fineDate(fine)} · ${money.format(Number(fine.amount))}${fine.is_paid && fine.paid_at ? ` · Bezahlt am ${new Date(fine.paid_at).toLocaleDateString('de-DE')}` : ''}`),
+        dateEditor
       );
       const actions = el('div', null, 'fine-actions');
+      const saveDatesButton = el('button', 'Daten speichern', 'button primary');
+      saveDatesButton.type = 'button';
+      saveDatesButton.addEventListener('click', () => updateFineDates(fine, fineDateInput, paidDateInput));
       const paidButton = el('button', fine.is_paid ? 'Als offen markieren' : 'Als bezahlt markieren', `button ${fine.is_paid ? 'neutral' : 'success'}`);
       paidButton.type = 'button';
       paidButton.addEventListener('click', () => setFinePaid(fine));
       const deleteButton = el('button', 'Löschen', 'button danger');
       deleteButton.type = 'button';
       deleteButton.addEventListener('click', () => deleteFine(fine));
-      actions.append(paidButton, deleteButton);
+      actions.append(saveDatesButton, paidButton, deleteButton);
       card.append(copy, actions);
       return card;
     }));
@@ -330,6 +347,24 @@
     } catch (error) { return message('Fehler: ' + error.message); }
     await loadData(); render();
     message(nextPaid ? 'Strafe als bezahlt markiert.' : 'Strafe wieder als offen markiert.');
+  }
+
+  async function updateFineDates(fine, fineDateInput, paidDateInput) {
+    if (!fineDateInput.value) return message('Bitte das Datum der Strafe eintragen.');
+    const paidAt = paidDateToIso(paidDateInput.value);
+    try {
+      await api(`strafen?id=eq.${encodeURIComponent(fine.id)}`, {
+        method: 'PATCH',
+        prefer: 'return=minimal',
+        body: {
+          occurred_on: fineDateInput.value,
+          is_paid: Boolean(paidAt),
+          paid_at: paidAt
+        }
+      });
+    } catch (error) { return message('Fehler: ' + error.message); }
+    await loadData(); render();
+    message('Straf- und Zahlungsdatum gespeichert.');
   }
 
   async function deleteFine(fine) {
