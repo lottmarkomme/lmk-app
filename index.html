@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#121212">
+  <title>Lott mar komme | Zug-App</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="config.js"></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <main id="auth-view" class="auth-shell">
+    <section class="auth-card">
+      <div class="brand-mark" aria-hidden="true">LMK</div>
+      <p class="eyebrow">Korschenbroich · seit 1708</p>
+      <h1>Lott mar komme</h1>
+      <p class="muted">Interne Zug-App</p>
+
+      <div class="tabs" role="tablist">
+        <button id="login-tab" class="tab active" type="button">Anmelden</button>
+        <button id="register-tab" class="tab" type="button">Registrieren</button>
+      </div>
+
+      <form id="auth-form">
+        <label id="invite-group" class="hidden">
+          Persönlicher Einladungscode
+          <input id="invite-code" autocomplete="one-time-code" placeholder="LMK-XXXX-XXXX-XXXX">
+          <small>Den Code erhältst du einmalig vom Administrator.</small>
+        </label>
+        <label>
+          E-Mail-Adresse
+          <input id="email" type="email" autocomplete="email" required placeholder="name@beispiel.de">
+        </label>
+        <label>
+          Passwort
+          <input id="password" type="password" minlength="8" autocomplete="current-password" required placeholder="Mindestens 8 Zeichen">
+        </label>
+        <p id="auth-error" class="form-error hidden"></p>
+        <button id="auth-submit" class="button primary full" type="submit">Anmelden</button>
+      </form>
+    </section>
+  </main>
+
+  <div id="app-view" class="hidden">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div>
+          <p class="eyebrow gold">Schützenzug Korschenbroich</p>
+          <strong>Lott mar komme</strong>
+        </div>
+        <div class="user-area">
+          <div class="user-copy"><span id="user-name">–</span><small id="user-role">–</small></div>
+          <button id="logout-button" class="icon-button" type="button" title="Abmelden">↪</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section id="meeting-card" class="meeting-card">
+        <div>
+          <p class="eyebrow gold">Nächstes Treffen</p>
+          <h2 id="meeting-title">Wird geladen …</h2>
+          <p id="meeting-date" class="meeting-date"></p>
+          <p id="meeting-location" class="muted"></p>
+        </div>
+        <div class="rsvp-box">
+          <p>Kannst du teilnehmen?</p>
+          <div class="button-row">
+            <button class="button success" data-rsvp="kann" type="button">✓ Dabei</button>
+            <button class="button danger" data-rsvp="kann_nicht" type="button">× Absage</button>
+            <button class="button neutral" data-rsvp="unsicher" type="button">? Unsicher</button>
+          </div>
+          <small id="rsvp-note" class="muted">Noch keine Rückmeldung</small>
+        </div>
+      </section>
+
+      <section class="stats-grid" aria-label="Statistik">
+        <article class="stat"><span>Zugsau</span><strong id="zugsau-name">–</strong><small>Höchste Gesamtsumme</small></article>
+        <article class="stat"><span>Gesamte Strafen</span><strong id="total-amount">0,00 €</strong></article>
+        <article class="stat"><span>Noch offen</span><strong id="unpaid-amount" class="red">0,00 €</strong></article>
+        <article class="stat"><span>Bei mir offen</span><strong id="my-amount" class="gold">0,00 €</strong></article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Spießkasse</p>
+            <h2>Rangliste</h2>
+          </div>
+          <button id="add-fine-button" class="button primary hidden" type="button">+ Strafe eintragen</button>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Mitglied</th><th>Anzahl</th><th>Offen</th><th>Gesamt</th></tr></thead>
+            <tbody id="ranking-body"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><div><p class="eyebrow">Details</p><h2>Meine Strafen</h2></div></div>
+        <div id="my-fines" class="card-list"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><div><p class="eyebrow">Rückmeldungen</p><h2>Teilnehmerliste</h2></div></div>
+        <div id="attendance-list" class="attendance-grid"></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="fine-dialog">
+    <form id="fine-form" method="dialog" class="dialog-card">
+      <div class="panel-head"><h2>Strafe eintragen</h2><button id="close-dialog" class="icon-button" type="button">×</button></div>
+      <label>Mitglied<select id="fine-member" required></select></label>
+      <label>Strafenkatalog<select id="fine-catalog"><option value="">Freier Eintrag</option></select></label>
+      <label>Grund<input id="fine-reason" maxlength="300" required></label>
+      <label>Betrag in Euro<input id="fine-amount" type="number" min="0.01" max="10000" step="0.01" required></label>
+      <p id="fine-error" class="form-error hidden"></p>
+      <button class="button primary full" type="submit">Speichern</button>
+    </form>
+  </dialog>
+</body>
+</html>
