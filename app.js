@@ -7,28 +7,10 @@
   const client = configured
     ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabasePublishableKey)
     : null;
-  let dataClient = null;
-
   const state = { mode: 'login', authBusy: false, session: null, user: null, profile: null, profiles: [], fines: [], catalog: [], meeting: null, attendance: [] };
   const $ = (id) => document.getElementById(id);
   const money = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
   const dateTime = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
-
-  function db() {
-    if (dataClient) return dataClient;
-    if (!state.session?.access_token) {
-      throw new Error('Die Anmeldung ist abgelaufen. Bitte melde dich erneut an.');
-    }
-    dataClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabasePublishableKey, {
-      accessToken: async () => state.session.access_token,
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-        detectSessionInUrl: false
-      }
-    });
-    return dataClient;
-  }
 
   function message(text) {
     $('toast').textContent = text;
@@ -98,7 +80,7 @@
   }
 
   async function getProfile() {
-    const { data, error } = await db().from('profiles').select('id, full_name, role').eq('user_id', state.user.id).maybeSingle();
+    const { data, error } = await client.from('profiles').select('id, full_name, role').eq('user_id', state.user.id).maybeSingle();
     if (error) throw error;
     if (!data) throw new Error('Dieses Konto ist noch keinem Mitglied zugeordnet. Bitte wende dich an den Administrator.');
     state.profile = data;
@@ -107,10 +89,10 @@
   async function loadData() {
     const now = new Date().toISOString();
     const [profilesResult, finesResult, catalogResult, meetingResult] = await Promise.all([
-      db().from('profiles').select('id, full_name, role').order('full_name'),
-      db().from('strafen').select('id, member_id, created_by, catalog_id, reason, amount, is_paid, paid_at, created_at').order('created_at', { ascending: false }),
-      db().from('strafenkatalog').select('id, kategorie, paragraph_nr, titel, standard_betrag').order('paragraph_nr'),
-      db().from('termine').select('id, title, starts_at, location, description').gte('starts_at', now).order('starts_at').limit(1).maybeSingle()
+      client.from('profiles').select('id, full_name, role').order('full_name'),
+      client.from('strafen').select('id, member_id, created_by, catalog_id, reason, amount, is_paid, paid_at, created_at').order('created_at', { ascending: false }),
+      client.from('strafenkatalog').select('id, kategorie, paragraph_nr, titel, standard_betrag').order('paragraph_nr'),
+      client.from('termine').select('id, title, starts_at, location, description').gte('starts_at', now).order('starts_at').limit(1).maybeSingle()
     ]);
     for (const result of [profilesResult, finesResult, catalogResult, meetingResult]) if (result.error) throw result.error;
     state.profiles = profilesResult.data || [];
@@ -118,7 +100,7 @@
     state.catalog = catalogResult.data || [];
     state.meeting = meetingResult.data || null;
     if (state.meeting) {
-      const attendanceResult = await db().from('anwesenheit').select('termin_id, profile_id, status, kommentar, updated_at').eq('termin_id', state.meeting.id);
+      const attendanceResult = await client.from('anwesenheit').select('termin_id, profile_id, status, kommentar, updated_at').eq('termin_id', state.meeting.id);
       if (attendanceResult.error) throw attendanceResult.error;
       state.attendance = attendanceResult.data || [];
     } else state.attendance = [];
@@ -135,6 +117,8 @@
     $('user-name').textContent = state.profile.full_name;
     $('user-role').textContent = state.profile.role;
     $('add-fine-button').classList.toggle('hidden', !['spiess', 'vorstand', 'admin'].includes(state.profile.role));
+    const isOfficer = ['spiess', 'vorstand', 'admin'].includes(state.profile.role);
+    $('officer-fines-panel').classList.toggle('hidden', !isOfficer);
 
     if (state.meeting) {
       $('meeting-title').textContent = state.meeting.title;
@@ -185,6 +169,8 @@
       return card;
     }) : [el('p', 'Du hast noch keine Strafen.', 'muted')]));
 
+    if (isOfficer) renderOfficerFines();
+
     const statusLabel = { kann: 'Dabei', kann_nicht: 'Abgesagt', unsicher: 'Unsicher' };
     $('attendance-list').replaceChildren(...state.profiles.map((profile) => {
       const reply = state.attendance.find((a) => a.profile_id === profile.id);
@@ -211,8 +197,6 @@
     if (!session?.access_token || !session?.user) throw new Error('Keine gültige Anmeldung vorhanden.');
     state.session = session;
     state.user = session.user;
-    dataClient = null;
-    db();
     try {
       await getProfile();
       await loadData();
@@ -227,7 +211,7 @@
 
   async function saveRsvp(status) {
     if (!state.meeting) return message('Es gibt keinen kommenden Termin.');
-    const { error } = await db().from('anwesenheit').upsert({
+    const { error } = await client.from('anwesenheit').upsert({
       termin_id: state.meeting.id,
       profile_id: state.profile.id,
       status,
@@ -250,10 +234,58 @@
       is_paid: false,
       paid_at: null
     };
-    const { error } = await db().from('strafen').insert(payload);
+    const target = state.profiles.find((profile) => profile.id === payload.member_id);
+    const { error } = await client.from('strafen').insert(payload);
     if (error) return showError($('fine-error'), error);
     $('fine-dialog').close(); $('fine-form').reset();
-    await loadData(); render(); message('Strafe gespeichert.');
+    await loadData(); render();
+    message(target?.role === 'spiess' ? 'Strafe gespeichert und für den Spieß automatisch verdoppelt.' : 'Strafe gespeichert.');
+  }
+
+  function renderOfficerFines() {
+    const container = $('officer-fines');
+    if (!state.fines.length) {
+      container.replaceChildren(el('p', 'Noch keine Strafen vorhanden.', 'muted'));
+      return;
+    }
+    container.replaceChildren(...state.fines.map((fine) => {
+      const member = state.profiles.find((profile) => profile.id === fine.member_id);
+      const card = el('article', null, 'fine-card officer-fine');
+      const copy = document.createElement('div');
+      copy.append(
+        el('p', `${member?.full_name || 'Unbekannt'} · ${fine.reason}`),
+        el('small', `${new Date(fine.created_at).toLocaleDateString('de-DE')} · ${money.format(Number(fine.amount))}`)
+      );
+      const actions = el('div', null, 'fine-actions');
+      const paidButton = el('button', fine.is_paid ? 'Als offen markieren' : 'Als bezahlt markieren', `button ${fine.is_paid ? 'neutral' : 'success'}`);
+      paidButton.type = 'button';
+      paidButton.addEventListener('click', () => setFinePaid(fine));
+      const deleteButton = el('button', 'Löschen', 'button danger');
+      deleteButton.type = 'button';
+      deleteButton.addEventListener('click', () => deleteFine(fine));
+      actions.append(paidButton, deleteButton);
+      card.append(copy, actions);
+      return card;
+    }));
+  }
+
+  async function setFinePaid(fine) {
+    const nextPaid = !fine.is_paid;
+    const { error } = await client.from('strafen').update({
+      is_paid: nextPaid,
+      paid_at: nextPaid ? new Date().toISOString() : null
+    }).eq('id', fine.id);
+    if (error) return message('Fehler: ' + error.message);
+    await loadData(); render();
+    message(nextPaid ? 'Strafe als bezahlt markiert.' : 'Strafe wieder als offen markiert.');
+  }
+
+  async function deleteFine(fine) {
+    const member = state.profiles.find((profile) => profile.id === fine.member_id);
+    if (!window.confirm(`Strafe „${fine.reason}“ von ${member?.full_name || 'dem Mitglied'} wirklich löschen?`)) return;
+    const { error } = await client.from('strafen').delete().eq('id', fine.id);
+    if (error) return message('Fehler: ' + error.message);
+    await loadData(); render(); message('Strafe gelöscht.');
   }
 
   function applyCatalog() {
@@ -278,12 +310,10 @@
     client.auth.onAuthStateChange((event, session) => {
       if (event === 'TOKEN_REFRESHED' && session) {
         state.session = session;
-        dataClient = null;
       }
       if (event === 'SIGNED_IN' && session?.user && !state.authBusy && !$('auth-view').classList.contains('hidden')) window.setTimeout(() => enterApp(session), 0);
       if (!session) {
         state.session = null;
-        dataClient = null;
         $('app-view').classList.add('hidden');
         $('auth-view').classList.remove('hidden');
       }
