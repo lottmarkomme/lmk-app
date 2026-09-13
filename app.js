@@ -12,6 +12,31 @@
   const money = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
   const dateTime = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
 
+  async function api(path, options = {}) {
+    if (!state.session?.access_token) throw new Error('Keine gültige Anmeldung vorhanden.');
+    const headers = {
+      apikey: cfg.supabasePublishableKey,
+      Authorization: `Bearer ${state.session.access_token}`,
+      Accept: 'application/json'
+    };
+    if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+    if (options.prefer) headers.Prefer = options.prefer;
+    const response = await fetch(`${cfg.supabaseUrl}/rest/v1/${path}`, {
+      method: options.method || 'GET',
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+    });
+    const text = await response.text();
+    let data = null;
+    if (text) {
+      try { data = JSON.parse(text); } catch (_error) { data = text; }
+    }
+    if (!response.ok) {
+      throw new Error(data?.message || data?.hint || `Datenbankfehler ${response.status}`);
+    }
+    return data;
+  }
+
   function message(text) {
     $('toast').textContent = text;
     $('toast').classList.add('show');
@@ -80,29 +105,25 @@
   }
 
   async function getProfile() {
-    const { data, error } = await client.from('profiles').select('id, full_name, role').eq('user_id', state.user.id).maybeSingle();
-    if (error) throw error;
-    if (!data) throw new Error('Dieses Konto ist noch keinem Mitglied zugeordnet. Bitte wende dich an den Administrator.');
-    state.profile = data;
+    const rows = await api(`profiles?select=id,full_name,role&user_id=eq.${encodeURIComponent(state.user.id)}&limit=1`);
+    if (!rows?.[0]) throw new Error('Dieses Konto ist noch keinem Mitglied zugeordnet. Bitte wende dich an den Administrator.');
+    state.profile = rows[0];
   }
 
   async function loadData() {
     const now = new Date().toISOString();
-    const [profilesResult, finesResult, catalogResult, meetingResult] = await Promise.all([
-      client.from('profiles').select('id, full_name, role').order('full_name'),
-      client.from('strafen').select('id, member_id, created_by, catalog_id, reason, amount, is_paid, paid_at, created_at').order('created_at', { ascending: false }),
-      client.from('strafenkatalog').select('id, kategorie, paragraph_nr, titel, standard_betrag').order('paragraph_nr'),
-      client.from('termine').select('id, title, starts_at, location, description').gte('starts_at', now).order('starts_at').limit(1).maybeSingle()
+    const [profiles, fines, catalog, meetings] = await Promise.all([
+      api('profiles?select=id,full_name,role&order=full_name.asc'),
+      api('strafen?select=id,member_id,created_by,catalog_id,reason,amount,is_paid,paid_at,created_at&order=created_at.desc'),
+      api('strafenkatalog?select=id,kategorie,paragraph_nr,titel,standard_betrag&order=paragraph_nr.asc'),
+      api(`termine?select=id,title,starts_at,location,description&starts_at=gte.${encodeURIComponent(now)}&order=starts_at.asc&limit=1`)
     ]);
-    for (const result of [profilesResult, finesResult, catalogResult, meetingResult]) if (result.error) throw result.error;
-    state.profiles = profilesResult.data || [];
-    state.fines = finesResult.data || [];
-    state.catalog = catalogResult.data || [];
-    state.meeting = meetingResult.data || null;
+    state.profiles = profiles || [];
+    state.fines = fines || [];
+    state.catalog = catalog || [];
+    state.meeting = meetings?.[0] || null;
     if (state.meeting) {
-      const attendanceResult = await client.from('anwesenheit').select('termin_id, profile_id, status, kommentar, updated_at').eq('termin_id', state.meeting.id);
-      if (attendanceResult.error) throw attendanceResult.error;
-      state.attendance = attendanceResult.data || [];
+      state.attendance = await api(`anwesenheit?select=termin_id,profile_id,status,kommentar,updated_at&termin_id=eq.${encodeURIComponent(state.meeting.id)}`) || [];
     } else state.attendance = [];
   }
 
@@ -211,14 +232,19 @@
 
   async function saveRsvp(status) {
     if (!state.meeting) return message('Es gibt keinen kommenden Termin.');
-    const { error } = await client.from('anwesenheit').upsert({
+    try {
+      await api('anwesenheit?on_conflict=termin_id,profile_id', {
+        method: 'POST',
+        prefer: 'resolution=merge-duplicates,return=minimal',
+        body: {
       termin_id: state.meeting.id,
       profile_id: state.profile.id,
       status,
       updated_at: new Date().toISOString()
-    }, { onConflict: 'termin_id,profile_id' });
-    if (error) return message('Fehler: ' + error.message);
-    await loadData(); render(); message('Rückmeldung gespeichert.');
+        }
+      });
+      await loadData(); render(); message('Rückmeldung gespeichert.');
+    } catch (error) { message('Fehler: ' + error.message); }
   }
 
   async function saveFine(event) {
@@ -235,8 +261,9 @@
       paid_at: null
     };
     const target = state.profiles.find((profile) => profile.id === payload.member_id);
-    const { error } = await client.from('strafen').insert(payload);
-    if (error) return showError($('fine-error'), error);
+    try {
+      await api('strafen', { method: 'POST', prefer: 'return=minimal', body: payload });
+    } catch (error) { return showError($('fine-error'), error); }
     $('fine-dialog').close(); $('fine-form').reset();
     await loadData(); render();
     message(target?.role === 'spiess' ? 'Strafe gespeichert und für den Spieß automatisch verdoppelt.' : 'Strafe gespeichert.');
@@ -271,11 +298,12 @@
 
   async function setFinePaid(fine) {
     const nextPaid = !fine.is_paid;
-    const { error } = await client.from('strafen').update({
-      is_paid: nextPaid,
-      paid_at: nextPaid ? new Date().toISOString() : null
-    }).eq('id', fine.id);
-    if (error) return message('Fehler: ' + error.message);
+    try {
+      await api(`strafen?id=eq.${encodeURIComponent(fine.id)}`, {
+        method: 'PATCH', prefer: 'return=minimal',
+        body: { is_paid: nextPaid, paid_at: nextPaid ? new Date().toISOString() : null }
+      });
+    } catch (error) { return message('Fehler: ' + error.message); }
     await loadData(); render();
     message(nextPaid ? 'Strafe als bezahlt markiert.' : 'Strafe wieder als offen markiert.');
   }
@@ -283,8 +311,9 @@
   async function deleteFine(fine) {
     const member = state.profiles.find((profile) => profile.id === fine.member_id);
     if (!window.confirm(`Strafe „${fine.reason}“ von ${member?.full_name || 'dem Mitglied'} wirklich löschen?`)) return;
-    const { error } = await client.from('strafen').delete().eq('id', fine.id);
-    if (error) return message('Fehler: ' + error.message);
+    try {
+      await api(`strafen?id=eq.${encodeURIComponent(fine.id)}`, { method: 'DELETE', prefer: 'return=minimal' });
+    } catch (error) { return message('Fehler: ' + error.message); }
     await loadData(); render(); message('Strafe gelöscht.');
   }
 
