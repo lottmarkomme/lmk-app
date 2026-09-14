@@ -167,7 +167,25 @@ async function preparePdfScans(protocol,source,status){
 async function analyzeProtocol(protocol,force=false,status){
  await preparePdfScans(protocol,null,status);
  status?.('Protokoll wird vollständig ausgewertet …');
- const result=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:protocol.id,force,scan_paths:protocol.page_image_paths||[]}});
+ const previousAnalyzedAt=protocol.analyzed_at||null;
+ let result;
+ try{
+  result=await timed(
+   ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:protocol.id,force,scan_paths:protocol.page_image_paths||[]}}),
+   110000,
+   'Die Serverauswertung läuft länger als die Verbindung offen bleibt.'
+  );
+ }catch(e){result={error:e};}
+ if(result.error){
+  status?.('Server arbeitet weiter – Ergebnis wird geprüft …');
+  for(let attempt=0;attempt<15;attempt++){
+   const rows=await ctx.api('protokolle?select=status,error_message,analyzed_at&id=eq.'+protocol.id+'&limit=1');
+   const fresh=rows[0];
+   if(fresh?.status==='ready'&&fresh.analyzed_at&&fresh.analyzed_at!==previousAnalyzedAt){await reload();return;}
+   if(fresh?.status==='error')throw new Error(fresh.error_message||'Die Auswertung ist fehlgeschlagen.');
+   await new Promise(resolve=>setTimeout(resolve,4000));
+  }
+ }
  const data=await edgeResult(result);
  if(data?.error)throw new Error(data.error);
  await reload();
