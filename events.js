@@ -167,7 +167,7 @@ async function preparePdfScans(protocol,source,status){
 async function analyzeProtocol(protocol,force=false,status){
  await preparePdfScans(protocol,null,status);
  status?.('Protokoll wird vollständig ausgewertet …');
- const result=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:protocol.id,force}});
+ const result=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:protocol.id,force,scan_paths:protocol.page_image_paths||[]}});
  const data=await edgeResult(result);
  if(data?.error)throw new Error(data.error);
  await reload();
