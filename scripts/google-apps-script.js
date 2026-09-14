@@ -71,18 +71,25 @@ function protocolRpc(name,payload){
  return JSON.parse(r.getContentText());
 }
 function buildProtocolMail(member,protocol){
+ const statusLabels={beschlossen:'Beschlossen',offen:'Offen',vertagt:'Vertagt',information:'Information',gemischt:'Gemischt'};
+ const topics=(protocol.topics||[]).map((x,i)=>'<div style="margin:0 0 14px;padding:16px 18px;background:#242424;border-left:4px solid #f2a900;border-radius:8px;">'
+  +'<div style="margin:0 0 7px;font-family:Arial,sans-serif;font-size:18px;font-weight:700;line-height:1.35;color:#ffffff;">'+esc((i+1)+'. '+x.title)+'</div>'
+  +'<div style="margin:0 0 8px;font-family:Arial,sans-serif;font-size:15px;line-height:1.55;color:#f7f3ea;">'+esc(x.details)+'</div>'
+  +(x.outcome?'<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.45;color:#ffd166;"><strong>'+esc(statusLabels[x.status]||'Ergebnis')+':</strong> '+esc(x.outcome)+'</div>':'')
+  +'</div>').join('');
  const decisions=(protocol.decisions||[]).map(x=>'<li style="margin:0 0 8px;color:#f7f3ea;">'+esc(x)+'</li>').join('');
  const tasks=(protocol.action_items||[]).map(x=>'<li style="margin:0 0 8px;color:#f7f3ea;">'+esc(x.task)+(x.owner?' · '+esc(x.owner):'')+(x.due_date?' · bis '+esc(x.due_date):'')+'</li>').join('');
  const dateText=protocol.starts_at?Utilities.formatDate(new Date(protocol.starts_at),'Europe/Berlin','dd.MM.yyyy HH:mm')+' Uhr':'';
  const body=textBlock('Hallo '+member.name+',',20)
   +panel(textBlock('PROTOKOLL-ZUSAMMENFASSUNG',12,'#ffd166')+textBlock(protocol.title,27)+textBlock(dateText,15,'#c4beb4'),'#1c1c1c')
   +textBlock('Das Wichtigste',22)+panel(textBlock(protocol.summary||'Keine Zusammenfassung vorhanden.'))
+  +(topics?textBlock('Alle besprochenen Punkte',22)+topics:'')
   +(decisions?textBlock('Beschlüsse',22)+panel('<ul style="margin:0;padding-left:20px;">'+decisions+'</ul>'):'')
   +(tasks?textBlock('Aufgaben',22)+panel('<ul style="margin:0;padding-left:20px;">'+tasks+'</ul>'):'')
   +textBlock('Die Zusammenfassung wurde automatisch aus dem hochgeladenen Protokoll erstellt. Prüfe bei wichtigen Entscheidungen zusätzlich das Originalprotokoll.',13,'#c4beb4');
  return {
   subject:'Protokoll: '+protocol.title+' – Zusammenfassung',
-  text:'Hallo '+member.name+',\n\n'+(protocol.summary||'Keine Zusammenfassung vorhanden.'),
+  text:'Hallo '+member.name+',\n\n'+(protocol.summary||'Keine Zusammenfassung vorhanden.')+(protocol.topics||[]).map((x,i)=>'\n\n'+(i+1)+'. '+x.title+'\n'+x.details+(x.outcome?'\nErgebnis: '+x.outcome:'')).join(''),
   html:frame(body)
  };
 }
