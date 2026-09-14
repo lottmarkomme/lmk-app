@@ -2,14 +2,15 @@
 
 Die Datenbankmigration und die Edge Function `analyze-protocol` werden über Supabase ausgerollt. Bestehende Daten und Einstellungen bleiben erhalten.
 
-## 1. OpenAI-Schlüssel in Supabase hinterlegen
+## 1. Cloudflare Workers AI in Supabase hinterlegen
 
-Im Supabase Dashboard unter **Edge Functions → Secrets** anlegen:
+Im Cloudflare Dashboard einen API-Token mit der Berechtigung **Workers AI – Read** erstellen. Danach im Supabase Dashboard unter **Edge Functions → Secrets** anlegen:
 
-- `OPENAI_API_KEY`: ein aktiver OpenAI API-Schlüssel
-- optional `OPENAI_MODEL`: gewünschtes Modell; ohne Angabe nutzt die Funktion `gpt-6-astra`
+- `CLOUDFLARE_ACCOUNT_ID`: die Cloudflare Account-ID
+- `CLOUDFLARE_API_TOKEN`: der Workers-AI-API-Token
+- optional `CLOUDFLARE_AI_MODEL`: gewünschtes JSON-Mode-fähiges Modell; ohne Angabe nutzt die Funktion `@cf/meta/llama-3.3-70b-instruct-fp8-fast`
 
-Den Schlüssel niemals in GitHub, den Browser-Code oder Google Apps Script kopieren.
+Die Funktion sendet die private Protokolldatei zuerst an Cloudflares Markdown Conversion und danach den extrahierten Text an Workers AI. Schlüssel niemals in GitHub, den Browser-Code oder Google Apps Script kopieren. Das nicht mehr benötigte Supabase-Secret `OPENAI_API_KEY` kann nach einem erfolgreichen Test entfernt werden.
 
 ## 2. Google Apps Script aktualisieren
 
