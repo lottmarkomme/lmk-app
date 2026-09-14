@@ -207,6 +207,7 @@ Deno.serve(async (req) => {
     protocolId = String(input?.protocol_id || "");
     const action = String(input?.action || "analyze");
     const force = input?.force === true;
+    const requestedScanPaths = Array.isArray(input?.scan_paths) ? input.scan_paths : [];
     if (!uuidPattern.test(protocolId)) return json({ error: "Ungültige Protokoll-ID." }, 400);
 
     const userResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
@@ -244,6 +245,28 @@ Deno.serve(async (req) => {
       });
     }
     if (action !== "analyze") return json({ error: "Ungültige Aktion." }, 400);
+    const storedScanPaths = Array.isArray(protocol.page_image_paths) ? protocol.page_image_paths : [];
+    const scanPaths = (requestedScanPaths.length ? requestedScanPaths : storedScanPaths)
+      .filter((path: unknown) =>
+        typeof path === "string" &&
+        path.length <= 500 &&
+        !path.includes("..") &&
+        (!requestedScanPaths.length || path.startsWith(`${profile.id}/`)) &&
+        path.includes(protocolId) &&
+        path.endsWith(".jpg")
+      )
+      .slice(0, MAX_SCAN_IMAGES);
+    if (requestedScanPaths.length && !scanPaths.length) {
+      return json({ error: "Die erzeugten Scanbilder haben ungültige Speicherpfade." }, 400);
+    }
+    if (requestedScanPaths.length) {
+      const rememberResponse = await fetch(`${supabaseUrl}/rest/v1/protokolle?id=eq.${protocolId}`, {
+        method: "PATCH",
+        headers: { ...serviceHeaders, Prefer: "return=minimal" },
+        body: JSON.stringify({ page_image_paths: scanPaths }),
+      });
+      if (!rememberResponse.ok) throw new Error("Die Scanbilder konnten nicht mit dem Protokoll verknüpft werden.");
+    }
     if (protocol.status === "ready" && !force) return json({ success: true, summary: protocol.summary });
 
     const claimResponse = await fetch(
@@ -264,11 +287,6 @@ Deno.serve(async (req) => {
       throw new Error("Cloudflare Workers AI ist in Supabase noch nicht vollständig eingerichtet.");
     }
 
-    const scanPaths = Array.isArray(protocol.page_image_paths)
-      ? protocol.page_image_paths.filter((path: unknown) =>
-        typeof path === "string" && path.length <= 500 && !path.includes("..") && path.endsWith(".jpg")
-      ).slice(0, MAX_SCAN_IMAGES)
-      : [];
     const bytes = await readStorageFile(protocol.storage_path, supabaseUrl, serviceKey);
     let originalMarkdown = "";
     try {
