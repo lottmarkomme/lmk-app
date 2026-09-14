@@ -3,6 +3,12 @@ let ctx, events=[], meetings=[], polls=[], votes=[], meetingAttendance=[], event
 const PDFJS_VERSION='4.10.38';
 const MAX_PDF_PAGES=16;
 let pdfJsPromise;
+function timed(promise,ms,message){
+ return new Promise((resolve,reject)=>{
+  const timer=setTimeout(()=>reject(new Error(message)),ms);
+  Promise.resolve(promise).then(value=>{clearTimeout(timer);resolve(value);},reason=>{clearTimeout(timer);reject(reason);});
+ });
+}
 const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 const board=()=>['admin','vorstand'].includes(ctx.profile.role);
 const officer=()=>['admin','vorstand','spiess'].includes(ctx.profile.role);
@@ -92,10 +98,10 @@ function attendanceSummary(item){
 }
 function canvasBlob(canvas){return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('Die PDF-Seite konnte nicht vorbereitet werden.')),'image/jpeg',0.9));}
 async function pdfJs(){
- if(!pdfJsPromise)pdfJsPromise=import('https://cdn.jsdelivr.net/npm/pdfjs-dist@'+PDFJS_VERSION+'/build/pdf.min.mjs').then(lib=>{
+ if(!pdfJsPromise)pdfJsPromise=timed(import('https://cdn.jsdelivr.net/npm/pdfjs-dist@'+PDFJS_VERSION+'/build/pdf.min.mjs'),30000,'Der PDF-Scanner konnte nicht geladen werden. Bitte Internetverbindung prüfen und erneut versuchen.').then(lib=>{
   lib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@'+PDFJS_VERSION+'/build/pdf.worker.min.mjs';
   return lib;
- });
+ }).catch(e=>{pdfJsPromise=null;throw e;});
  return pdfJsPromise;
 }
 async function preparePdfScans(protocol,source,status){
@@ -103,14 +109,18 @@ async function preparePdfScans(protocol,source,status){
  status?.('PDF wird auf gescannte Seiten geprüft …');
  let blob=source;
  if(!blob){
-  const sourceResult=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:protocol.id,action:'source'}});
+  status?.('Originaldatei wird sicher geladen …');
+  const sourceResult=await timed(ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:protocol.id,action:'source'}}),45000,'Das gespeicherte PDF konnte nicht rechtzeitig geladen werden.');
   if(sourceResult.error)throw sourceResult.error;
   if(sourceResult.data?.error)throw new Error(sourceResult.data.error);
   blob=sourceResult.data;
   if(!(blob instanceof Blob))throw new Error('Das gespeicherte PDF konnte nicht geladen werden.');
  }
+ status?.('PDF-Scanner wird geladen …');
  const lib=await pdfJs();
- const pdfDocument=await lib.getDocument({data:new Uint8Array(await blob.arrayBuffer())}).promise;
+ status?.('PDF-Seiten werden geöffnet …');
+ const loadingTask=lib.getDocument({data:new Uint8Array(await blob.arrayBuffer())});
+ const pdfDocument=await timed(loadingTask.promise,45000,'Das PDF konnte nicht rechtzeitig geöffnet werden.');
  if(pdfDocument.numPages>MAX_PDF_PAGES)throw new Error('Gescannte PDF-Protokolle dürfen höchstens '+MAX_PDF_PAGES+' Seiten enthalten.');
  const paths=[];
  try{
