@@ -1,5 +1,8 @@
 window.LMK_EVENTS = (() => {
 let ctx, events=[], meetings=[], polls=[], votes=[], meetingAttendance=[], eventAttendance=[], protocols=[];
+const PDFJS_VERSION='4.10.38';
+const MAX_PDF_PAGES=16;
+let pdfJsPromise;
 const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 const board=()=>['admin','vorstand'].includes(ctx.profile.role);
 const officer=()=>['admin','vorstand','spiess'].includes(ctx.profile.role);
@@ -7,6 +10,7 @@ const date=v=>new Date(v).toLocaleString('de-DE',{timeZone:'Europe/Berlin'});
 function button(text,action){const b=node('button',text);b.type='button';b.className='button neutral';b.onclick=()=>Promise.resolve().then(action).catch(error);return b;}
 function error(e){const box=document.getElementById('events-error');box.textContent=e.message;box.classList.remove('hidden');}
 async function reload(){
+ const protocolFiles=officer()?',storage_path,mime_type,page_image_paths':'';
  [events,meetings,polls,votes,meetingAttendance,eventAttendance,protocols]=await Promise.all([
  'zug_events?select=*&order=starts_at.asc',
  'termine?select=*&order=starts_at.asc',
@@ -14,7 +18,7 @@ async function reload(){
  'cash_votes?select=*',
  'anwesenheit?select=termin_id,profile_id,status,updated_at',
  'zug_event_attendance?select=event_id,profile_id,status,updated_at',
- 'protokolle?select=id,meeting_id,event_id,original_name,status,summary,topics,decisions,action_items,error_message,analyzed_at,mailed_at&order=created_at.desc'
+ 'protokolle?select=id,meeting_id,event_id,original_name'+protocolFiles+',status,summary,topics,decisions,action_items,error_message,analyzed_at,mailed_at&order=created_at.desc'
  ].map(p=>ctx.api(p)));
  render();
 }
@@ -86,8 +90,66 @@ function attendanceSummary(item){
  box.append(summary);
  return box;
 }
-async function analyzeProtocol(id,force=false){
- const result=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:id,force}});
+function canvasBlob(canvas){return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('Die PDF-Seite konnte nicht vorbereitet werden.')),'image/jpeg',0.9));}
+async function pdfJs(){
+ if(!pdfJsPromise)pdfJsPromise=import('https://cdn.jsdelivr.net/npm/pdfjs-dist@'+PDFJS_VERSION+'/build/pdf.min.mjs').then(lib=>{
+  lib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@'+PDFJS_VERSION+'/build/pdf.worker.min.mjs';
+  return lib;
+ });
+ return pdfJsPromise;
+}
+async function preparePdfScans(protocol,source,status){
+ if(protocol.mime_type!=='application/pdf'||protocol.page_image_paths?.length)return protocol.page_image_paths||[];
+ status?.('PDF wird auf gescannte Seiten geprüft …');
+ let blob=source;
+ if(!blob){
+  const downloaded=await ctx.client.storage.from('protokolle').download(protocol.storage_path);
+  if(downloaded.error)throw downloaded.error;
+  blob=downloaded.data;
+ }
+ const lib=await pdfJs();
+ const pdfDocument=await lib.getDocument({data:new Uint8Array(await blob.arrayBuffer())}).promise;
+ if(pdfDocument.numPages>MAX_PDF_PAGES)throw new Error('Gescannte PDF-Protokolle dürfen höchstens '+MAX_PDF_PAGES+' Seiten enthalten.');
+ const paths=[];
+ try{
+  for(let pageNumber=1;pageNumber<=pdfDocument.numPages;pageNumber++){
+   const page=await pdfDocument.getPage(pageNumber);
+   const text=await page.getTextContent();
+   const readable=text.items.map(item=>item.str||'').join(' ').replace(/\s+/g,' ').trim();
+   if(readable.length>=120)continue;
+   status?.('Texterkennung wird vorbereitet: Seite '+pageNumber+' von '+pdfDocument.numPages+' …');
+   const base=page.getViewport({scale:1});
+   const viewport=page.getViewport({scale:Math.min(2.4,1200/base.width)});
+   const canvas=document.createElement('canvas');canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);
+   await page.render({canvasContext:canvas.getContext('2d',{alpha:false}),viewport}).promise;
+   const tileHeight=680,overlap=40,step=tileHeight-overlap;
+   for(let top=0,tile=1;top<canvas.height;top+=step,tile++){
+    const height=Math.min(tileHeight,canvas.height-top),part=document.createElement('canvas');part.width=canvas.width;part.height=height;
+    part.getContext('2d',{alpha:false}).drawImage(canvas,0,top,canvas.width,height,0,0,canvas.width,height);
+    const image=await canvasBlob(part);
+    const path=ctx.profile.id+'/'+Date.now()+'-'+protocol.id+'-seite-'+pageNumber+'-'+tile+'.jpg';
+    const uploaded=await ctx.client.storage.from('protokolle').upload(path,image,{contentType:'image/jpeg',upsert:false});
+    if(uploaded.error)throw uploaded.error;
+    paths.push(path);part.width=part.height=1;
+   }
+   canvas.width=canvas.height=1;page.cleanup();
+  }
+  await pdfDocument.destroy();
+  if(paths.length){
+   await ctx.api('protokolle?id=eq.'+protocol.id,{method:'PATCH',prefer:'return=minimal',body:{page_image_paths:paths}});
+   protocol.page_image_paths=paths;
+  }
+  return paths;
+ }catch(e){
+  if(paths.length)await ctx.client.storage.from('protokolle').remove(paths);
+  try{await pdfDocument.destroy();}catch(_){}
+  throw e;
+ }
+}
+async function analyzeProtocol(protocol,force=false,status){
+ await preparePdfScans(protocol,null,status);
+ status?.('Protokoll wird vollständig ausgewertet …');
+ const result=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:protocol.id,force}});
  if(result.error)throw result.error;
  if(result.data?.error)throw new Error(result.data.error);
  await reload();
@@ -97,10 +159,10 @@ function protocolDetails(protocol){
  box.append(node('strong',protocol.original_name));
  if(protocol.status==='pending'||protocol.status==='processing'){
   box.append(node('p',protocol.status==='processing'?'KI-Auswertung läuft …':'Auswertung wartet …'));
-  if(officer())box.append(button('Jetzt auswerten',()=>analyzeProtocol(protocol.id)));
+   if(officer())box.append(button('Jetzt auswerten',()=>analyzeProtocol(protocol)));
  }else if(protocol.status==='error'){
   const note=node('p','Fehler: '+(protocol.error_message||'Unbekannter Fehler'));note.className='form-error';box.append(note);
-  if(officer())box.append(button('Erneut auswerten',()=>analyzeProtocol(protocol.id)));
+   if(officer())box.append(button('Erneut auswerten',()=>analyzeProtocol(protocol)));
  }else{
   box.append(node('h5','Zusammenfassung'),node('p',protocol.summary||'Keine Zusammenfassung vorhanden.'));
   if(protocol.topics?.length){
@@ -121,7 +183,7 @@ function protocolDetails(protocol){
    box.append(list);
   }
   box.append(node('small',protocol.mailed_at?'Zusammenfassung wurde per E-Mail verschickt.':'E-Mail-Versand steht noch aus.'));
-  if(officer())box.append(button('Neu auswerten',()=>analyzeProtocol(protocol.id,true)));
+   if(officer())box.append(button('Neu auswerten',()=>analyzeProtocol(protocol,true)));
  }
  return box;
 }
@@ -143,8 +205,9 @@ async function uploadProtocol(item,input,submit,status){
   body[item.table==='termine'?'meeting_id':'event_id']=item.id;
   const saved=await ctx.api('protokolle',{method:'POST',prefer:'return=representation',body});
   registered=true;
-  status.textContent='Protokoll wird ausgewertet …';
-  await analyzeProtocol(saved[0].id);
+   const protocol=saved[0];
+   await preparePdfScans(protocol,file,text=>status.textContent=text);
+   await analyzeProtocol(protocol,false,text=>status.textContent=text);
   input.value='';status.textContent='Auswertung abgeschlossen. Die E-Mail wird automatisch vorbereitet.';
  }catch(e){
   if(!registered)await ctx.client.storage.from('protokolle').remove([path]);
