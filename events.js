@@ -15,6 +15,16 @@ const officer=()=>['admin','vorstand','spiess'].includes(ctx.profile.role);
 const date=v=>new Date(v).toLocaleString('de-DE',{timeZone:'Europe/Berlin'});
 function button(text,action){const b=node('button',text);b.type='button';b.className='button neutral';b.onclick=async()=>{b.disabled=true;try{await action();}catch(e){error(e);}finally{if(b.isConnected)b.disabled=false;}};return b;}
 function error(e){const box=document.getElementById('events-error');box.textContent=e.message;box.classList.remove('hidden');}
+async function edgeResult(result){
+ if(!result.error)return result.data;
+ let message=result.error.message||'Die Serverfunktion ist fehlgeschlagen.';
+ try{
+  const response=result.error.context;
+  const payload=response?.clone?await response.clone().json():null;
+  if(payload?.error)message=payload.error;
+ }catch(_){}
+ throw new Error(message);
+}
 async function reload(){
  const protocolFiles=officer()?',storage_path,mime_type,page_image_paths':'';
  [events,meetings,polls,votes,meetingAttendance,eventAttendance,protocols]=await Promise.all([
@@ -111,9 +121,8 @@ async function preparePdfScans(protocol,source,status){
  if(!blob){
   status?.('Originaldatei wird sicher geladen …');
   const sourceResult=await timed(ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:protocol.id,action:'source'}}),45000,'Das gespeicherte PDF konnte nicht rechtzeitig geladen werden.');
-  if(sourceResult.error)throw sourceResult.error;
-  if(sourceResult.data?.error)throw new Error(sourceResult.data.error);
-  blob=sourceResult.data;
+  blob=await edgeResult(sourceResult);
+  if(blob?.error)throw new Error(blob.error);
   if(!(blob instanceof Blob))throw new Error('Das gespeicherte PDF konnte nicht geladen werden.');
  }
  status?.('PDF-Scanner wird geladen …');
@@ -126,9 +135,6 @@ async function preparePdfScans(protocol,source,status){
  try{
   for(let pageNumber=1;pageNumber<=pdfDocument.numPages;pageNumber++){
    const page=await pdfDocument.getPage(pageNumber);
-   const text=await page.getTextContent();
-   const readable=text.items.map(item=>item.str||'').join(' ').replace(/\s+/g,' ').trim();
-   if(readable.length>=120)continue;
    status?.('Texterkennung wird vorbereitet: Seite '+pageNumber+' von '+pdfDocument.numPages+' …');
    const base=page.getViewport({scale:1});
    const viewport=page.getViewport({scale:Math.min(2.4,1200/base.width)});
@@ -162,8 +168,8 @@ async function analyzeProtocol(protocol,force=false,status){
  await preparePdfScans(protocol,null,status);
  status?.('Protokoll wird vollständig ausgewertet …');
  const result=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:protocol.id,force}});
- if(result.error)throw result.error;
- if(result.data?.error)throw new Error(result.data.error);
+ const data=await edgeResult(result);
+ if(data?.error)throw new Error(data.error);
  await reload();
 }
 function protocolDetails(protocol){
