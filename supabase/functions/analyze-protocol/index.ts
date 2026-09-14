@@ -303,12 +303,12 @@ Deno.serve(async (req) => {
     }
     const sections: string[] = [];
     if (originalMarkdown && !isPdfMetadataOnly(originalMarkdown)) sections.push(originalMarkdown);
-    for (let start = 0; start < scanPaths.length; start += 4) {
-      const batch = scanPaths.slice(start, start + 4);
-      const converted = await Promise.all(batch.map(async (path: string, offset: number) => {
-        const index = start + offset;
-        const imageBytes = await readStorageFile(path, supabaseUrl, serviceKey);
-        const scanText = await convertToMarkdown(
+    let convertedScanCount = 0;
+    for (let index = 0; index < scanPaths.length; index++) {
+      const imageBytes = await readStorageFile(scanPaths[index], supabaseUrl, serviceKey);
+      let scanText = "";
+      try {
+        scanText = await convertToMarkdown(
           imageBytes,
           `scan-${index + 1}.jpg`,
           "image/jpeg",
@@ -316,9 +316,27 @@ Deno.serve(async (req) => {
           cloudflareToken,
           { image: { descriptionLanguage: "de" } },
         );
-        return `## Gescannter Seitenausschnitt ${index + 1}\n\n${scanText}`;
-      }));
-      sections.push(...converted);
+      } catch (_) {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        try {
+          scanText = await convertToMarkdown(
+            imageBytes,
+            `scan-${index + 1}.jpg`,
+            "image/jpeg",
+            cloudflareAccountId,
+            cloudflareToken,
+          );
+        } catch (_) {
+          continue;
+        }
+      }
+      if (scanText.trim()) {
+        sections.push(`## Gescannter Seitenausschnitt ${index + 1}\n\n${scanText}`);
+        convertedScanCount++;
+      }
+    }
+    if (scanPaths.length && convertedScanCount === 0) {
+      throw new Error("Die Texterkennung konnte keinen der gespeicherten Seitenausschnitte lesen. Bitte erneut versuchen.");
     }
     const markdown = sections.join("\n\n").trim();
     if (!markdown || (protocol.mime_type === "application/pdf" && isPdfMetadataOnly(markdown))) {
