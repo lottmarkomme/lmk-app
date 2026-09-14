@@ -14,7 +14,7 @@ async function reload(){
  'cash_votes?select=*',
  'anwesenheit?select=termin_id,profile_id,status,updated_at',
  'zug_event_attendance?select=event_id,profile_id,status,updated_at',
- 'protokolle?select=id,meeting_id,event_id,original_name,status,summary,decisions,action_items,error_message,analyzed_at,mailed_at&order=created_at.desc'
+ 'protokolle?select=id,meeting_id,event_id,original_name,status,summary,topics,decisions,action_items,error_message,analyzed_at,mailed_at&order=created_at.desc'
  ].map(p=>ctx.api(p)));
  render();
 }
@@ -86,8 +86,8 @@ function attendanceSummary(item){
  box.append(summary);
  return box;
 }
-async function analyzeProtocol(id){
- const result=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:id}});
+async function analyzeProtocol(id,force=false){
+ const result=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:id,force}});
  if(result.error)throw result.error;
  if(result.data?.error)throw new Error(result.data.error);
  await reload();
@@ -103,6 +103,15 @@ function protocolDetails(protocol){
   if(officer())box.append(button('Erneut auswerten',()=>analyzeProtocol(protocol.id)));
  }else{
   box.append(node('h5','Zusammenfassung'),node('p',protocol.summary||'Keine Zusammenfassung vorhanden.'));
+  if(protocol.topics?.length){
+   box.append(node('h5','Alle besprochenen Punkte'));
+   protocol.topics.forEach(topic=>{
+    const item=node('section');item.className='protocol-topic';
+    item.append(node('strong',topic.title),node('p',topic.details));
+    if(topic.outcome)item.append(node('small',topic.outcome));
+    box.append(item);
+   });
+  }
   if(protocol.decisions?.length){
    box.append(node('h5','Beschlüsse'));const list=node('ul');protocol.decisions.forEach(x=>list.append(node('li',x)));box.append(list);
   }
@@ -112,6 +121,7 @@ function protocolDetails(protocol){
    box.append(list);
   }
   box.append(node('small',protocol.mailed_at?'Zusammenfassung wurde per E-Mail verschickt.':'E-Mail-Versand steht noch aus.'));
+  if(officer())box.append(button('Neu auswerten',()=>analyzeProtocol(protocol.id,true)));
  }
  return box;
 }
