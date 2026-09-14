@@ -61,10 +61,57 @@ function runWeekly(kind,preview){
  });
  }finally{lock.releaseLock();}
 }
+function protocolRpc(name,payload){
+ const p=PropertiesService.getScriptProperties();
+ const r=UrlFetchApp.fetch(p.getProperty('SUPABASE_URL')+'/rest/v1/rpc/'+name,{
+  method:'post',contentType:'application/json',headers:{apikey:p.getProperty('SUPABASE_PUBLISHABLE_KEY')},
+  payload:JSON.stringify(Object.assign({p_job_token:p.getProperty('MAIL_JOB_TOKEN')},payload||{})),muteHttpExceptions:true
+ });
+ if(r.getResponseCode()!==200)throw Error('Protokoll-Mail fehlgeschlagen: HTTP '+r.getResponseCode()+' · '+r.getContentText());
+ return JSON.parse(r.getContentText());
+}
+function buildProtocolMail(member,protocol){
+ const decisions=(protocol.decisions||[]).map(x=>'<li style="margin:0 0 8px;color:#f7f3ea;">'+esc(x)+'</li>').join('');
+ const tasks=(protocol.action_items||[]).map(x=>'<li style="margin:0 0 8px;color:#f7f3ea;">'+esc(x.task)+(x.owner?' · '+esc(x.owner):'')+(x.due_date?' · bis '+esc(x.due_date):'')+'</li>').join('');
+ const dateText=protocol.starts_at?Utilities.formatDate(new Date(protocol.starts_at),'Europe/Berlin','dd.MM.yyyy HH:mm')+' Uhr':'';
+ const body=textBlock('Hallo '+member.name+',',20)
+  +panel(textBlock('PROTOKOLL-ZUSAMMENFASSUNG',12,'#ffd166')+textBlock(protocol.title,27)+textBlock(dateText,15,'#c4beb4'),'#1c1c1c')
+  +textBlock('Das Wichtigste',22)+panel(textBlock(protocol.summary||'Keine Zusammenfassung vorhanden.'))
+  +(decisions?textBlock('Beschlüsse',22)+panel('<ul style="margin:0;padding-left:20px;">'+decisions+'</ul>'):'')
+  +(tasks?textBlock('Aufgaben',22)+panel('<ul style="margin:0;padding-left:20px;">'+tasks+'</ul>'):'')
+  +textBlock('Die Zusammenfassung wurde automatisch aus dem hochgeladenen Protokoll erstellt. Prüfe bei wichtigen Entscheidungen zusätzlich das Originalprotokoll.',13,'#c4beb4');
+ return {
+  subject:'Protokoll: '+protocol.title+' – Zusammenfassung',
+  text:'Hallo '+member.name+',\n\n'+(protocol.summary||'Keine Zusammenfassung vorhanden.'),
+  html:frame(body)
+ };
+}
+function runProtocolEmails(preview){
+ const lock=LockService.getScriptLock();lock.waitLock(30000);
+ try{
+  const protocols=protocolRpc('protocol_mail_v1');
+  protocols.forEach(protocol=>{
+   (protocol.recipients||[]).forEach(member=>{
+    const mail=buildProtocolMail(member,protocol);
+    const options={htmlBody:mail.html,name:'Lott mar komme'};
+    if(preview)GmailApp.createDraft(member.email,mail.subject,mail.text,options);
+    else{
+     if(MailApp.getRemainingDailyQuota()<1)throw Error('E-Mail-Kontingent ausgeschöpft.');
+     GmailApp.sendEmail(member.email,mail.subject,mail.text,options);
+     protocolRpc('mark_protocol_mailed_v1',{p_protocol_id:protocol.id,p_profile_id:member.id});
+    }
+   });
+   if(!preview)protocolRpc('mark_protocol_mailed_v1',{p_protocol_id:protocol.id,p_profile_id:null});
+  });
+ }finally{lock.releaseLock();}
+}
 function sendWeeklyFineEmails(){runWeekly('fine',false);}
 function sendWeeklyMeetingEmails(){runWeekly('meeting',false);}
 function previewWeeklyEmails(){runWeekly('fine',true);runWeekly('meeting',true);}
+function sendPendingProtocolEmails(){runProtocolEmails(false);}
+function previewProtocolEmails(){runProtocolEmails(true);}
 function createWeeklyTrigger(){
- ScriptApp.getProjectTriggers().forEach(t=>{if(['sendWeeklyFineEmails','sendWeeklyMeetingEmails'].includes(t.getHandlerFunction()))ScriptApp.deleteTrigger(t);});
+ ScriptApp.getProjectTriggers().forEach(t=>{if(['sendWeeklyFineEmails','sendWeeklyMeetingEmails','sendPendingProtocolEmails'].includes(t.getHandlerFunction()))ScriptApp.deleteTrigger(t);});
  ['sendWeeklyFineEmails','sendWeeklyMeetingEmails'].forEach(fn=>ScriptApp.newTrigger(fn).timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(9).inTimezone('Europe/Berlin').create());
+ ScriptApp.newTrigger('sendPendingProtocolEmails').timeBased().everyMinutes(15).create();
 }

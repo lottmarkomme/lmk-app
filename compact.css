@@ -7,3 +7,11 @@ details[open] summary{margin-bottom:14px;border-bottom:1px solid #555}
 details .fine-actions{margin-top:14px}
 summary:focus-visible{outline:2px solid #f5a900;outline-offset:4px}
 @media(max-width:480px){.list-controls>*{flex-basis:100%!important;width:100%!important}}
+.event-attendance,.protocol-box{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}
+.event-vote-row{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.protocol-box>label{display:block;margin-top:14px}
+.protocol-box input[type=file]{width:100%;margin:7px 0 10px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2);color:var(--text)}
+.protocol-result{margin:12px 0;padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--panel2)}
+.protocol-result h5{margin:14px 0 5px;color:var(--gold2)}
+.protocol-result ul{margin:6px 0 12px;padding-left:22px}
+@media(max-width:480px){.event-vote-row{display:grid;grid-template-columns:1fr}.event-vote-row .button{width:100%}}

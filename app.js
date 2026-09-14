@@ -250,7 +250,7 @@
       await getProfile();
       await loadData();
       render();
-      await window.LMK_EVENTS.load({ api, profile: state.profile, refresh: async () => { await loadData(); render(); } });
+      await window.LMK_EVENTS.load({ api, client, profile: state.profile, refresh: async () => { await loadData(); render(); } });
       $('auth-view').classList.add('hidden');
       $('app-view').classList.remove('hidden');
     } catch (error) {

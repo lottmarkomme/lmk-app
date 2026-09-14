@@ -1,5 +1,5 @@
 window.LMK_EVENTS = (() => {
-let ctx, events=[], meetings=[], polls=[], votes=[];
+let ctx, events=[], meetings=[], polls=[], votes=[], meetingAttendance=[], eventAttendance=[], protocols=[];
 const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;return n;};
 const board=()=>['admin','vorstand'].includes(ctx.profile.role);
 const officer=()=>['admin','vorstand','spiess'].includes(ctx.profile.role);
@@ -7,7 +7,15 @@ const date=v=>new Date(v).toLocaleString('de-DE',{timeZone:'Europe/Berlin'});
 function button(text,action){const b=node('button',text);b.type='button';b.className='button neutral';b.onclick=()=>Promise.resolve().then(action).catch(error);return b;}
 function error(e){const box=document.getElementById('events-error');box.textContent=e.message;box.classList.remove('hidden');}
 async function reload(){
- [events,meetings,polls,votes]=await Promise.all(['zug_events?select=*&order=starts_at.asc','termine?select=*&order=starts_at.asc','cash_polls?select=*','cash_votes?select=*'].map(p=>ctx.api(p)));
+ [events,meetings,polls,votes,meetingAttendance,eventAttendance,protocols]=await Promise.all([
+ 'zug_events?select=*&order=starts_at.asc',
+ 'termine?select=*&order=starts_at.asc',
+ 'cash_polls?select=*',
+ 'cash_votes?select=*',
+ 'anwesenheit?select=termin_id,profile_id,status,updated_at',
+ 'zug_event_attendance?select=event_id,profile_id,status,updated_at',
+ 'protokolle?select=id,meeting_id,event_id,original_name,status,summary,decisions,action_items,error_message,analyzed_at,mailed_at&order=created_at.desc'
+ ].map(p=>ctx.api(p)));
  render();
 }
 function form(title,fields,save){
@@ -43,6 +51,101 @@ function configure(event,poll){
  await ctx.api('cash_polls'+(poll?'?id=eq.'+poll.id:''),{method:poll?'PATCH':'POST',prefer:'return=minimal',body:{event_id:event.id,question:d.question,closes_at:new Date(d.closes_at).toISOString(),enabled:d.enabled==='true'}});
  });
 }
+const attendanceLabels={kann:'Dabei',kann_nicht:'Kann nicht',unsicher:'Unsicher'};
+async function saveAttendance(item,status){
+ const meeting=item.table==='termine',table=meeting?'anwesenheit':'zug_event_attendance',idKey=meeting?'termin_id':'event_id';
+ await ctx.api(table+'?on_conflict='+idKey+',profile_id',{
+  method:'POST',prefer:'resolution=merge-duplicates,return=minimal',
+  body:{[idKey]:item.id,profile_id:ctx.profile.id,status,updated_at:new Date().toISOString()}
+ });
+ await reload();await ctx.refresh();
+}
+function attendanceBox(item){
+ const meeting=item.table==='termine';
+ const rows=(meeting?meetingAttendance:eventAttendance).filter(a=>(meeting?a.termin_id:a.event_id)===item.id);
+ const own=rows.find(a=>a.profile_id===ctx.profile.id);
+ const box=node('section');box.className='event-attendance';
+ box.append(node('h4','Teilnahme'));
+ const actions=node('div');actions.className='event-vote-row';
+ ['kann','kann_nicht','unsicher'].forEach(status=>{
+  const count=rows.filter(a=>a.status===status).length;
+  const b=button(attendanceLabels[status]+' · '+count,()=>saveAttendance(item,status));
+  if(own?.status===status)b.className='button primary';
+  actions.append(b);
+ });
+ box.append(actions,node('small',own?'Deine Antwort: '+attendanceLabels[own.status]:'Du hast noch nicht geantwortet.'));
+ return box;
+}
+async function analyzeProtocol(id){
+ const result=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:id}});
+ if(result.error)throw result.error;
+ if(result.data?.error)throw new Error(result.data.error);
+ await reload();
+}
+function protocolDetails(protocol){
+ const box=node('article');box.className='protocol-result';
+ box.append(node('strong',protocol.original_name));
+ if(protocol.status==='pending'||protocol.status==='processing'){
+  box.append(node('p',protocol.status==='processing'?'KI-Auswertung läuft …':'Auswertung wartet …'));
+  if(officer())box.append(button('Jetzt auswerten',()=>analyzeProtocol(protocol.id)));
+ }else if(protocol.status==='error'){
+  const note=node('p','Fehler: '+(protocol.error_message||'Unbekannter Fehler'));note.className='form-error';box.append(note);
+  if(officer())box.append(button('Erneut auswerten',()=>analyzeProtocol(protocol.id)));
+ }else{
+  box.append(node('h5','Zusammenfassung'),node('p',protocol.summary||'Keine Zusammenfassung vorhanden.'));
+  if(protocol.decisions?.length){
+   box.append(node('h5','Beschlüsse'));const list=node('ul');protocol.decisions.forEach(x=>list.append(node('li',x)));box.append(list);
+  }
+  if(protocol.action_items?.length){
+   box.append(node('h5','Aufgaben'));const list=node('ul');
+   protocol.action_items.forEach(x=>list.append(node('li',x.task+(x.owner?' · '+x.owner:'')+(x.due_date?' · bis '+x.due_date:''))));
+   box.append(list);
+  }
+  box.append(node('small',protocol.mailed_at?'Zusammenfassung wurde per E-Mail verschickt.':'E-Mail-Versand steht noch aus.'));
+ }
+ return box;
+}
+async function uploadProtocol(item,input,submit,status){
+ const file=input.files?.[0];
+ if(!file)throw new Error('Bitte zuerst eine Datei auswählen.');
+ if(file.size>8*1024*1024)throw new Error('Die Datei darf höchstens 8 MB groß sein.');
+ const ext=(file.name.split('.').pop()||'').toLowerCase();
+ const mimeByExt={pdf:'application/pdf',txt:'text/plain',md:'text/markdown',rtf:'application/rtf',docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document',odt:'application/vnd.oasis.opendocument.text'};
+ if(!mimeByExt[ext])throw new Error('Erlaubt sind PDF, DOCX, ODT, RTF, TXT und MD.');
+ submit.disabled=true;status.textContent='Datei wird hochgeladen …';
+ const safe=file.name.replace(/[^a-zA-Z0-9._-]+/g,'_').slice(-180);
+ const path=ctx.profile.id+'/'+Date.now()+'-'+crypto.randomUUID()+'-'+safe;
+ const uploaded=await ctx.client.storage.from('protokolle').upload(path,file,{contentType:mimeByExt[ext],upsert:false});
+ if(uploaded.error){submit.disabled=false;throw uploaded.error;}
+ let registered=false;
+ try{
+  const body={created_by:ctx.profile.id,original_name:file.name,storage_path:path,mime_type:mimeByExt[ext]};
+  body[item.table==='termine'?'meeting_id':'event_id']=item.id;
+  const saved=await ctx.api('protokolle',{method:'POST',prefer:'return=representation',body});
+  registered=true;
+  status.textContent='Protokoll wird ausgewertet …';
+  await analyzeProtocol(saved[0].id);
+  input.value='';status.textContent='Auswertung abgeschlossen. Die E-Mail wird automatisch vorbereitet.';
+ }catch(e){
+  if(!registered)await ctx.client.storage.from('protokolle').remove([path]);
+  throw e;
+ }finally{submit.disabled=false;await reload();}
+}
+function protocolBox(item){
+ const box=node('section');box.className='protocol-box';
+ box.append(node('h4','Protokolle & KI-Zusammenfassungen'));
+ const own=protocols.filter(p=>(item.table==='termine'?p.meeting_id:p.event_id)===item.id);
+ own.forEach(p=>box.append(protocolDetails(p)));
+ if(!own.length)box.append(node('p','Noch kein Protokoll vorhanden.'));
+ if(officer()){
+  const label=node('label','Protokoll auswählen');
+  const input=node('input');input.type='file';input.accept='.pdf,.docx,.odt,.rtf,.txt,.md';label.append(input);
+  const status=node('small');status.setAttribute('role','status');
+  const submit=button('Hochladen & auswerten',()=>uploadProtocol(item,input,submit,status));submit.className='button primary';
+  box.append(label,submit,status);
+ }
+ return box;
+}
 function render(){
  document.getElementById('new-event').onclick=()=>edit();
  const root=document.getElementById('events-list');root.replaceChildren();
@@ -52,6 +155,7 @@ function render(){
  card.append(node('summary',item.title+' · '+date(item.starts_at)));
  card.append(node('h3',item.title),node('p',(item.table==='termine'?'Schützentreffen · ':'Event · ')+date(item.starts_at)),node('p',item.location),node('p',item.description));
  if(item.table==='termine'?officer():board()||item.created_by===ctx.profile.id)card.append(button('Bearbeiten',()=>edit(item,item.table)));
+ card.append(attendanceBox(item));
  if(item.table==='zug_events'){
  const p=polls.find(p=>p.event_id===item.id);
  if(board())card.append(button(p?'Abstimmung konfigurieren':'Zugkassen-Abstimmung starten',()=>configure(item,p)));
@@ -66,7 +170,9 @@ function render(){
  });b.disabled=!open;card.append(b);
  });if(!open)card.append(node('p','Abstimmung geschlossen.'));
  }
- }root.append(card);
+ }
+ card.append(protocolBox(item));
+ root.append(card);
  });
  window.LMK_LISTS.update('events-list',{events:true});
 }
