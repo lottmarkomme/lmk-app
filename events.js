@@ -76,6 +76,16 @@ function attendanceBox(item){
  box.append(actions,node('small',own?'Deine Antwort: '+attendanceLabels[own.status]:'Du hast noch nicht geantwortet.'));
  return box;
 }
+function attendanceSummary(item){
+ const meeting=item.table==='termine';
+ const rows=(meeting?meetingAttendance:eventAttendance).filter(a=>(meeting?a.termin_id:a.event_id)===item.id);
+ const box=node('section');box.className='event-attendance';
+ box.append(node('h4','Teilnahme beim Termin'));
+ const summary=node('div');summary.className='event-vote-row attendance-readonly';
+ ['kann','kann_nicht','unsicher'].forEach(status=>summary.append(node('span',attendanceLabels[status]+' · '+rows.filter(a=>a.status===status).length)));
+ box.append(summary);
+ return box;
+}
 async function analyzeProtocol(id){
  const result=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:id}});
  if(result.error)throw result.error;
@@ -146,35 +156,41 @@ function protocolBox(item){
  }
  return box;
 }
-function render(){
- document.getElementById('new-event').onclick=()=>edit();
- const root=document.getElementById('events-list');root.replaceChildren();
- [...meetings.map(x=>({...x,table:'termine'})),...events.map(x=>({...x,table:'zug_events'}))].sort((a,b)=>a.starts_at.localeCompare(b.starts_at)).forEach(item=>{
+function renderItem(item,past){
  const card=node('details');card.className='rsvp-box';card.style.marginBottom='14px';
  card.dataset.startsAt=item.starts_at;card.dataset.kind=item.table;
  card.append(node('summary',item.title+' · '+date(item.starts_at)));
  card.append(node('h3',item.title),node('p',(item.table==='termine'?'Schützentreffen · ':'Event · ')+date(item.starts_at)),node('p',item.location),node('p',item.description));
  if(item.table==='termine'?officer():board()||item.created_by===ctx.profile.id)card.append(button('Bearbeiten',()=>edit(item,item.table)));
- card.append(attendanceBox(item));
+ card.append(past?attendanceSummary(item):attendanceBox(item));
  if(item.table==='zug_events'){
- const p=polls.find(p=>p.event_id===item.id);
- if(board())card.append(button(p?'Abstimmung konfigurieren':'Zugkassen-Abstimmung starten',()=>configure(item,p)));
- if(p){
- const own=votes.find(v=>v.poll_id===p.id&&v.profile_id===ctx.profile.id);
- card.append(node('h4',p.question),node('p','Ende: '+date(p.closes_at)),node('small','Die Stimmen sind für angemeldete Mitglieder einsehbar.'));
- const open=p.enabled&&new Date(p.closes_at)>new Date();
- ['ja','nein','enthaltung'].forEach(choice=>{
- const count=votes.filter(v=>v.poll_id===p.id&&v.choice===choice).length;
- const b=button(choice+' ('+count+')'+(own?.choice===choice?' ✓':''),async()=>{
- await ctx.api('cash_votes?on_conflict=poll_id,profile_id',{method:'POST',prefer:'resolution=merge-duplicates,return=minimal',body:{poll_id:p.id,profile_id:ctx.profile.id,choice}});await reload();
- });b.disabled=!open;card.append(b);
- });if(!open)card.append(node('p','Abstimmung geschlossen.'));
- }
+  const p=polls.find(p=>p.event_id===item.id);
+  if(!past&&board())card.append(button(p?'Abstimmung konfigurieren':'Zugkassen-Abstimmung starten',()=>configure(item,p)));
+  if(p){
+   const own=votes.find(v=>v.poll_id===p.id&&v.profile_id===ctx.profile.id);
+   card.append(node('h4',p.question),node('p','Ende: '+date(p.closes_at)),node('small','Die Stimmen sind für angemeldete Mitglieder einsehbar.'));
+   const open=!past&&p.enabled&&new Date(p.closes_at)>new Date();
+   ['ja','nein','enthaltung'].forEach(choice=>{
+    const count=votes.filter(v=>v.poll_id===p.id&&v.choice===choice).length;
+    const b=button(choice+' ('+count+')'+(own?.choice===choice?' ✓':''),async()=>{
+     await ctx.api('cash_votes?on_conflict=poll_id,profile_id',{method:'POST',prefer:'resolution=merge-duplicates,return=minimal',body:{poll_id:p.id,profile_id:ctx.profile.id,choice}});await reload();
+    });b.disabled=!open;card.append(b);
+   });if(!open)card.append(node('p','Abstimmung geschlossen.'));
+  }
  }
  card.append(protocolBox(item));
- root.append(card);
- });
- window.LMK_LISTS.update('events-list',{events:true});
+ return card;
+}
+function render(){
+ document.getElementById('new-event').onclick=()=>edit();
+ const futureRoot=document.getElementById('events-list'),pastRoot=document.getElementById('past-events-list'),now=Date.now();
+ const items=[...meetings.map(x=>({...x,table:'termine'})),...events.map(x=>({...x,table:'zug_events'}))];
+ const future=items.filter(x=>Date.parse(x.starts_at)>=now).sort((a,b)=>a.starts_at.localeCompare(b.starts_at));
+ const past=items.filter(x=>Date.parse(x.starts_at)<now).sort((a,b)=>b.starts_at.localeCompare(a.starts_at));
+ futureRoot.replaceChildren(...future.map(item=>renderItem(item,false)));
+ pastRoot.replaceChildren(...past.map(item=>renderItem(item,true)));
+ window.LMK_LISTS.update('events-list',{events:true,eventScope:'future'});
+ window.LMK_LISTS.update('past-events-list',{events:true,eventScope:'past'});
 }
 return {load:async context=>{ctx=context;await reload();}};
 })();

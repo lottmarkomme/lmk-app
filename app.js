@@ -11,6 +11,7 @@
   const $ = (id) => document.getElementById(id);
   const money = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
   const dateTime = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' });
+  const pages = new Set(['home', 'fines', 'ranking', 'events', 'archive']);
 
   async function api(path, options = {}) {
     if (!state.session?.access_token) throw new Error('Keine gültige Anmeldung vorhanden.');
@@ -41,6 +42,27 @@
     $('toast').textContent = text;
     $('toast').classList.add('show');
     window.setTimeout(() => $('toast').classList.remove('show'), 3500);
+  }
+
+  function showPage(requested, updateHash = false) {
+    const page = pages.has(requested) ? requested : 'home';
+    document.querySelectorAll('[data-page-view]').forEach((view) => view.classList.toggle('active', view.dataset.pageView === page));
+    document.querySelectorAll('[data-page]').forEach((button) => {
+      const active = button.dataset.page === page;
+      button.classList.toggle('active', active);
+      if (active) button.setAttribute('aria-current', 'page'); else button.removeAttribute('aria-current');
+    });
+    $('app-nav').classList.remove('open');
+    $('nav-toggle').setAttribute('aria-expanded', 'false');
+    $('nav-toggle').setAttribute('aria-label', 'Seitenauswahl öffnen');
+    if (updateHash && location.hash !== '#' + page) history.pushState(null, '', '#' + page);
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }
+
+  function toggleNavigation() {
+    const open = $('app-nav').classList.toggle('open');
+    $('nav-toggle').setAttribute('aria-expanded', String(open));
+    $('nav-toggle').setAttribute('aria-label', open ? 'Seitenauswahl schließen' : 'Seitenauswahl öffnen');
   }
 
   function showError(target, error) {
@@ -198,9 +220,14 @@
 
     $('ranking-body').replaceChildren(...stats.map((member) => {
       const row = document.createElement('tr');
-      row.append(el('td', member.full_name + (member.id === state.profile.id ? ' (du)' : '')),
-        el('td', String(member.count)), el('td', money.format(member.unpaid)), el('td', money.format(member.total)),
-        el('td', money.format(member.zugsauScore)));
+      const cells = [
+        ['Mitglied', member.full_name + (member.id === state.profile.id ? ' (du)' : '')],
+        ['Anzahl', String(member.count)],
+        ['Offen', money.format(member.unpaid)],
+        ['Gesamt', money.format(member.total)],
+        ['Zugsau-Wertung', money.format(member.zugsauScore)]
+      ].map(([label, value]) => { const cell = el('td', value); cell.dataset.label = label; return cell; });
+      row.append(...cells);
       return row;
     }));
 
@@ -253,6 +280,8 @@
       await window.LMK_EVENTS.load({ api, client, profile: state.profile, refresh: async () => { await loadData(); render(); } });
       $('auth-view').classList.add('hidden');
       $('app-view').classList.remove('hidden');
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      showPage(location.hash.slice(1));
     } catch (error) {
       await client.auth.signOut();
       showError($('auth-error'), error);
@@ -406,6 +435,9 @@
     $('register-tab').addEventListener('click', () => setAuthMode('register'));
     $('auth-form').addEventListener('submit', submitAuth);
     $('logout-button').addEventListener('click', () => client.auth.signOut());
+    $('nav-toggle').addEventListener('click', toggleNavigation);
+    document.querySelectorAll('[data-page]').forEach((button) => button.addEventListener('click', () => showPage(button.dataset.page, true)));
+    window.addEventListener('hashchange', () => showPage(location.hash.slice(1)));
     $('add-fine-button').addEventListener('click', openFineDialog);
     $('close-dialog').addEventListener('click', () => $('fine-dialog').close());
     $('fine-form').addEventListener('submit', saveFine);

@@ -10,7 +10,11 @@ window.LMK_LISTS = (() => {
       search.type = 'search'; search.placeholder = 'Suchen …'; search.setAttribute('aria-label', 'Liste durchsuchen');
       const filter = document.createElement('select');
       filter.setAttribute('aria-label', 'Liste filtern');
-      const choices = options.events ? [['future','Bevorstehend'],['past','Vergangen'],['all','Alle Termine'],['meeting','Nur Treffen'],['event','Nur Events']] : [['all','Alle Zahlungen'],['open','Nur offen'],['paid','Nur bezahlt']];
+      const choices = options.events && options.eventScope
+        ? [['all','Alle Arten'],['meeting','Nur Treffen'],['event','Nur Events']]
+        : options.events
+          ? [['future','Bevorstehend'],['past','Vergangen'],['all','Alle Termine'],['meeting','Nur Treffen'],['event','Nur Events']]
+          : [['all','Alle Zahlungen'],['open','Nur offen'],['paid','Nur bezahlt']];
       choices.forEach(([value,text]) => { const o = document.createElement('option'); o.value=value; o.textContent=text; filter.append(o); });
       const toggle = document.createElement('button'); toggle.type='button'; toggle.className='button neutral'; toggle.setAttribute('aria-controls',id);
       const count = document.createElement('p'); count.setAttribute('role','status');
@@ -27,7 +31,10 @@ window.LMK_LISTS = (() => {
       const matches=cards.filter(c=>{
         if(!c.dataset.startsAt && !c.dataset.status)return false;
         const future=Date.parse(c.dataset.startsAt)>=now;
-        const status=state.options.events ? f==='all'||f==='future'&&future||f==='past'&&!future||f==='meeting'&&future&&c.dataset.kind==='termine'||f==='event'&&future&&c.dataset.kind==='zug_events' : f==='all'||c.dataset.status===f;
+        const inScope=!state.options.eventScope||state.options.eventScope==='future'&&future||state.options.eventScope==='past'&&!future;
+        const status=state.options.events
+          ? inScope&&(f==='all'||f==='future'&&future||f==='past'&&!future||f==='meeting'&&c.dataset.kind==='termine'||f==='event'&&c.dataset.kind==='zug_events')
+          : f==='all'||c.dataset.status===f;
         return status && c.textContent.toLocaleLowerCase('de-DE').includes(q);
       });
       cards.forEach(c=>{c.hidden=true;});

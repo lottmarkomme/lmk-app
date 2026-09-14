@@ -10,17 +10,17 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Lott mar komme">
   <title>Lott mar komme | Zug-App</title>
-  <link rel="manifest" href="manifest.webmanifest?v=7">
+  <link rel="manifest" href="manifest.webmanifest?v=10">
   <link rel="icon" href="icons/icon-192.png" sizes="192x192">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="styles.css?v=9">
-  <link rel="stylesheet" href="compact.css?v=9">
+  <link rel="stylesheet" href="styles.css?v=10">
+  <link rel="stylesheet" href="compact.css?v=10">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="config.js"></script>
-  <script src="lists.js?v=9" defer></script>
-  <script src="events.js?v=9" defer></script>
-  <script src="app.js?v=9" defer></script>
-  <script src="pwa.js?v=9" defer></script>
+  <script src="lists.js?v=10" defer></script>
+  <script src="events.js?v=10" defer></script>
+  <script src="app.js?v=10" defer></script>
+  <script src="pwa.js?v=10" defer></script>
 </head>
 <body>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
@@ -61,18 +61,28 @@
   <div id="app-view" class="hidden">
     <header class="topbar">
       <div class="topbar-inner">
-        <div>
+        <div class="brand-copy">
           <p class="eyebrow gold">Schützenzug Korschenbroich</p>
           <strong>Lott mar komme</strong>
         </div>
         <div class="user-area">
           <div class="user-copy"><span id="user-name">–</span><small id="user-role">–</small></div>
+          <button id="nav-toggle" class="icon-button nav-toggle" type="button" aria-controls="app-nav" aria-expanded="false" aria-label="Seitenauswahl öffnen">☰</button>
           <button id="logout-button" class="icon-button" type="button" title="Abmelden">↪</button>
         </div>
+        <nav id="app-nav" class="app-nav" aria-label="Seitenauswahl">
+          <button type="button" data-page="home">Startseite</button>
+          <button type="button" data-page="fines">Strafen</button>
+          <button type="button" data-page="ranking">Zugsauplatzierung</button>
+          <button type="button" data-page="events">Events &amp; Treffen</button>
+          <button type="button" data-page="archive">Vergangene Termine</button>
+        </nav>
       </div>
     </header>
 
     <main class="container">
+      <div class="app-page" data-page-view="home">
+      <section class="page-heading"><p class="eyebrow gold">Übersicht</p><h1>Startseite</h1></section>
       <section id="meeting-card" class="meeting-card">
         <div>
           <p class="eyebrow gold">Nächstes Treffen</p>
@@ -90,8 +100,6 @@
           <small id="rsvp-note" class="muted">Noch keine Rückmeldung</small>
         </div>
       </section>
-
-      <section class="panel"><div class="panel-head"><h2>Treffen &amp; Events</h2><button id="new-event" class="button primary" type="button">+ Event</button></div><div id="events-list" class="card-list"></div><div id="events-error" role="status" class="form-error hidden"></div></section>
       <section class="stats-grid" aria-label="Statistik">
         <article class="stat"><span>Zugsau</span><strong id="zugsau-name">–</strong><small>Höchste Wertung ohne Spieß-Dopplung</small></article>
         <article class="stat"><span>Gesamte Strafen</span><strong id="total-amount">0,00 €</strong></article>
@@ -100,21 +108,31 @@
       </section>
 
       <section class="panel">
+        <div class="panel-head"><div><p class="eyebrow">Rückmeldungen</p><h2>Teilnehmerliste</h2></div></div>
+        <div id="attendance-list" class="attendance-grid"></div>
+      </section>
+      </div>
+
+      <div class="app-page" data-page-view="ranking">
+      <section class="page-heading"><p class="eyebrow gold">Spießkasse</p><h1>Zugsauplatzierung</h1></section>
+      <section class="panel">
         <div class="panel-head">
           <div>
             <p class="eyebrow">Spießkasse</p>
             <h2>Rangliste</h2>
           </div>
-          <button id="add-fine-button" class="button primary hidden" type="button">+ Strafe eintragen</button>
         </div>
         <div class="table-wrap">
-          <table>
+          <table class="ranking-table">
             <thead><tr><th>Mitglied</th><th>Anzahl</th><th>Offen</th><th>Gesamt</th><th>Zugsau-Wertung</th></tr></thead>
             <tbody id="ranking-body"></tbody>
           </table>
         </div>
       </section>
+      </div>
 
+      <div class="app-page" data-page-view="fines">
+      <section class="page-heading page-heading-action"><div><p class="eyebrow gold">Spießkasse</p><h1>Strafen</h1></div><button id="add-fine-button" class="button primary hidden" type="button">+ Strafe eintragen</button></section>
       <section class="panel">
         <div class="panel-head"><div><p class="eyebrow">Details</p><h2>Meine Strafen</h2></div></div>
         <div id="my-fines" class="card-list"></div>
@@ -124,12 +142,26 @@
         <div class="panel-head"><div><p class="eyebrow">Verwaltung</p><h2>Alle einzelnen Strafen</h2></div></div>
         <div id="officer-fines" class="card-list"></div>
       </section>
+      </div>
 
+      <div class="app-page" data-page-view="events">
+      <section class="page-heading page-heading-action"><div><p class="eyebrow gold">Planung</p><h1>Events &amp; Schützentreffen</h1></div><button id="new-event" class="button primary" type="button">+ Termin</button></section>
       <section class="panel">
-        <div class="panel-head"><div><p class="eyebrow">Rückmeldungen</p><h2>Teilnehmerliste</h2></div></div>
-        <div id="attendance-list" class="attendance-grid"></div>
+        <div class="panel-head"><h2>Kommende Termine</h2></div>
+        <div id="events-list" class="card-list"></div>
+        <div id="events-error" role="status" class="form-error hidden"></div>
       </section>
+      </div>
+
+      <div class="app-page" data-page-view="archive">
+      <section class="page-heading"><p class="eyebrow gold">Archiv</p><h1>Vergangene Events &amp; Schützentreffen</h1><p class="muted">Hier können Protokolle auch nachträglich hochgeladen und ausgewertet werden.</p></section>
+      <section class="panel">
+        <div class="panel-head"><h2>Vergangene Termine</h2></div>
+        <div id="past-events-list" class="card-list"></div>
+      </section>
+      </div>
     </main>
+    <footer><a href="impressum.html">Impressum</a> · <a href="datenschutz.html">Datenschutz</a></footer>
   </div>
 
   <dialog id="fine-dialog">
@@ -145,6 +177,5 @@
       <button class="button primary full" type="submit">Speichern</button>
     </form>
   </dialog>
-<footer style="text-align:center;padding:25px 15px 90px"><a href="impressum.html">Impressum</a> · <a href="datenschutz.html">Datenschutz</a></footer>
 </body>
 </html>
