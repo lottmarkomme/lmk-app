@@ -175,7 +175,11 @@ async function analyzeProtocol(protocol,force=false,status){
 function protocolDetails(protocol){
  const box=node('article');box.className='protocol-result';
  const progress=node('small');progress.setAttribute('role','status');
- const analyze=force=>analyzeProtocol(protocol,force,text=>progress.textContent=text);
+ const analyze=async force=>{
+  progress.classList.remove('form-error');
+  try{await analyzeProtocol(protocol,force,text=>progress.textContent=text);}
+  catch(e){progress.textContent='Fehler: '+e.message;progress.classList.add('form-error');}
+ };
  box.append(node('strong',protocol.original_name));
  if(protocol.status==='pending'||protocol.status==='processing'){
   box.append(node('p',protocol.status==='processing'?'KI-Auswertung läuft …':'Auswertung wartet …'));
