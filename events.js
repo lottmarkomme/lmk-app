@@ -103,9 +103,11 @@ async function preparePdfScans(protocol,source,status){
  status?.('PDF wird auf gescannte Seiten geprüft …');
  let blob=source;
  if(!blob){
-  const downloaded=await ctx.client.storage.from('protokolle').download(protocol.storage_path);
-  if(downloaded.error)throw downloaded.error;
-  blob=downloaded.data;
+  const sourceResult=await ctx.client.functions.invoke('analyze-protocol',{body:{protocol_id:protocol.id,action:'source'}});
+  if(sourceResult.error)throw sourceResult.error;
+  if(sourceResult.data?.error)throw new Error(sourceResult.data.error);
+  blob=sourceResult.data;
+  if(!(blob instanceof Blob))throw new Error('Das gespeicherte PDF konnte nicht geladen werden.');
  }
  const lib=await pdfJs();
  const pdfDocument=await lib.getDocument({data:new Uint8Array(await blob.arrayBuffer())}).promise;
