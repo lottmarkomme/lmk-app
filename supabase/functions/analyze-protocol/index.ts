@@ -205,6 +205,7 @@ Deno.serve(async (req) => {
   try {
     const input = await req.json();
     protocolId = String(input?.protocol_id || "");
+    const action = String(input?.action || "analyze");
     const force = input?.force === true;
     if (!uuidPattern.test(protocolId)) return json({ error: "Ungültige Protokoll-ID." }, 400);
 
@@ -230,6 +231,19 @@ Deno.serve(async (req) => {
     );
     const protocol = (await protocolResponse.json())?.[0];
     if (!protocol) return json({ error: "Protokoll nicht gefunden." }, 404);
+    if (action === "source") {
+      const source = await readStorageFile(protocol.storage_path, supabaseUrl, serviceKey);
+      return new Response(source, {
+        status: 200,
+        headers: {
+          ...cors,
+          "Content-Type": "application/octet-stream",
+          "Cache-Control": "no-store",
+          "Content-Disposition": "attachment; filename=protocol.pdf",
+        },
+      });
+    }
+    if (action !== "analyze") return json({ error: "Ungültige Aktion." }, 400);
     if (protocol.status === "ready" && !force) return json({ success: true, summary: protocol.summary });
 
     const claimResponse = await fetch(
