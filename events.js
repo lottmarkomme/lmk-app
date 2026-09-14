@@ -7,7 +7,7 @@ const node=(tag,text)=>{const n=document.createElement(tag);if(text!==undefined)
 const board=()=>['admin','vorstand'].includes(ctx.profile.role);
 const officer=()=>['admin','vorstand','spiess'].includes(ctx.profile.role);
 const date=v=>new Date(v).toLocaleString('de-DE',{timeZone:'Europe/Berlin'});
-function button(text,action){const b=node('button',text);b.type='button';b.className='button neutral';b.onclick=()=>Promise.resolve().then(action).catch(error);return b;}
+function button(text,action){const b=node('button',text);b.type='button';b.className='button neutral';b.onclick=async()=>{b.disabled=true;try{await action();}catch(e){error(e);}finally{if(b.isConnected)b.disabled=false;}};return b;}
 function error(e){const box=document.getElementById('events-error');box.textContent=e.message;box.classList.remove('hidden');}
 async function reload(){
  const protocolFiles=officer()?',storage_path,mime_type,page_image_paths':'';
@@ -156,13 +156,15 @@ async function analyzeProtocol(protocol,force=false,status){
 }
 function protocolDetails(protocol){
  const box=node('article');box.className='protocol-result';
+ const progress=node('small');progress.setAttribute('role','status');
+ const analyze=force=>analyzeProtocol(protocol,force,text=>progress.textContent=text);
  box.append(node('strong',protocol.original_name));
  if(protocol.status==='pending'||protocol.status==='processing'){
   box.append(node('p',protocol.status==='processing'?'KI-Auswertung läuft …':'Auswertung wartet …'));
-   if(officer())box.append(button('Jetzt auswerten',()=>analyzeProtocol(protocol)));
+   if(officer())box.append(button('Jetzt auswerten',()=>analyze(false)));
  }else if(protocol.status==='error'){
   const note=node('p','Fehler: '+(protocol.error_message||'Unbekannter Fehler'));note.className='form-error';box.append(note);
-   if(officer())box.append(button('Erneut auswerten',()=>analyzeProtocol(protocol)));
+   if(officer())box.append(button('Erneut auswerten',()=>analyze(false)));
  }else{
   box.append(node('h5','Zusammenfassung'),node('p',protocol.summary||'Keine Zusammenfassung vorhanden.'));
   if(protocol.topics?.length){
@@ -183,8 +185,9 @@ function protocolDetails(protocol){
    box.append(list);
   }
   box.append(node('small',protocol.mailed_at?'Zusammenfassung wurde per E-Mail verschickt.':'E-Mail-Versand steht noch aus.'));
-   if(officer())box.append(button('Neu auswerten',()=>analyzeProtocol(protocol,true)));
+   if(officer())box.append(button('Neu auswerten',()=>analyze(true)));
  }
+ if(officer())box.append(progress);
  return box;
 }
 async function uploadProtocol(item,input,submit,status){
